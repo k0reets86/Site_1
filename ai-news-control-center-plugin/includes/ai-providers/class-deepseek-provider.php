@@ -1,7 +1,7 @@
 <?php
 /**
  * DeepSeek AI Provider
- * Implementation for DeepSeek API
+ * Professional news rewriting with Deutsche Welle quality standards
  */
 
 if (!defined('ABSPATH')) {
@@ -124,147 +124,565 @@ class AINCC_DeepSeek_Provider implements AINCC_AI_Provider_Interface {
     }
 
     /**
-     * Rewrite content
+     * Get professional rewrite system prompt - Deutsche Welle quality
      */
-    public function rewrite($content, $style, $language = 'de') {
-        $lang_names = [
-            'de' => 'German',
-            'ua' => 'Ukrainian',
-            'ru' => 'Russian',
-            'en' => 'English',
+    private function get_rewrite_system_prompt($language, $style_hints = '') {
+        $lang_configs = [
+            'de' => [
+                'name' => 'German',
+                'native_name' => 'Deutsch',
+                'level' => 'B1-B2',
+                'examples' => [
+                    'clear' => 'Die Bundesregierung hat neue Regelungen beschlossen.',
+                    'avoid' => 'Die Regierung fasste in einer außerordentlichen Kabinettsitzung weitreichende Beschlüsse.',
+                ],
+            ],
+            'ua' => [
+                'name' => 'Ukrainian',
+                'native_name' => 'Українська',
+                'level' => 'native',
+                'examples' => [
+                    'clear' => 'Уряд Німеччини прийняв нові правила.',
+                    'avoid' => 'Федеральний уряд ФРН на позачерговому засіданні кабінету ухвалив далекосяжні рішення.',
+                ],
+            ],
+            'ru' => [
+                'name' => 'Russian',
+                'native_name' => 'Русский',
+                'level' => 'native',
+                'examples' => [
+                    'clear' => 'Правительство Германии приняло новые правила.',
+                    'avoid' => 'Федеральное правительство на внеочередном заседании кабинета приняло далеко идущие решения.',
+                ],
+            ],
+            'en' => [
+                'name' => 'English',
+                'native_name' => 'English',
+                'level' => 'B1-B2',
+                'examples' => [
+                    'clear' => 'The German government has announced new regulations.',
+                    'avoid' => 'The Federal Cabinet convened an extraordinary session to deliberate far-reaching legislative amendments.',
+                ],
+            ],
         ];
 
-        $lang_name = $lang_names[$language] ?? 'German';
+        $config = $lang_configs[$language] ?? $lang_configs['de'];
 
-        $system_prompt = <<<PROMPT
-You are a professional news editor for a news platform serving Ukrainians in Munich/Bavaria/Germany.
+        return <<<PROMPT
+# ROLE & IDENTITY
+You are a senior editor at Deutsche Welle ({$config['native_name']} edition), specializing in news for Ukrainian audiences in Germany. You have 15+ years of journalism experience and deep understanding of both German society and Ukrainian diaspora needs.
 
-Your task:
-1. Completely rewrite the provided article in {$lang_name}
-2. Create UNIQUE content - no plagiarism, no direct quotes (except very short official statements)
-3. Use your own words and phrasing
-4. Maintain factual accuracy
-5. Target audience: Ukrainians in Germany (A2-B2 German level if writing in German)
-6. Tone: Neutral, factual, easy to understand
+# YOUR MISSION
+Transform raw news into compelling, accessible, and genuinely helpful articles that inform and empower Ukrainian readers in Germany.
 
-Style guidelines:
-{$style}
+# CORE PRINCIPLES
 
-Output format:
-- Write only the rewritten article
-- Do not include any meta-commentary or explanations
-- Structure: Title, Lead (2-3 sentences), Body with sections
+## 1. ABSOLUTE ORIGINALITY
+- Rewrite 100% in your own words - NEVER copy-paste
+- Only use direct quotes for official statements (max 10 words, with quotation marks)
+- Your article must be UNIQUELY YOURS while preserving all facts
+- If caught plagiarizing, your career is over - treat this seriously
+
+## 2. CLARITY IS KING (Deutsche Welle Standard)
+Language level: {$config['level']} for non-native speakers
+
+✅ GOOD: "{$config['examples']['clear']}"
+❌ AVOID: "{$config['examples']['avoid']}"
+
+Rules:
+- One idea per sentence (15-20 words max)
+- Active voice always ("The government announced" not "It was announced")
+- Simple words over complex ones
+- Explain German bureaucratic terms in parentheses
+- NO jargon, NO academic language, NO officialese
+- Break down complex topics into digestible steps
+
+## 3. STRUCTURE FOR SCANNABILITY
+```
+HEADLINE: Informative, 8-12 words, main point clear
+LEAD: Who/What/When/Where in 2-3 sentences (50-80 words)
+BODY: Inverted pyramid - most important first
+```
+
+Each paragraph: 2-4 sentences, one main idea
+Use subheadings to break long articles
+Bullet points for lists, steps, or requirements
+
+## 4. RELEVANCE TO UKRAINIAN AUDIENCE
+Always answer: "Why should a Ukrainian in Munich/Bavaria care about this?"
+
+Priorities:
+1. 🏠 PRACTICAL: Housing, work, documents, integration
+2. 💶 FINANCIAL: Benefits, jobs, costs, rights
+3. 📋 LEGAL: Visa, residence, regulations
+4. 🏫 FAMILY: Schools, healthcare, children
+5. 🚌 DAILY LIFE: Transport, shopping, services
+6. 🇺🇦 UKRAINE: War updates, family support, returns
+7. 🌍 CONTEXT: German politics affecting migrants
+
+## 5. TONE & VOICE
+- Informative but warm (like explaining to a friend)
+- Respectful (no condescension)
+- Practical (focus on actionable information)
+- Neutral on politics (present facts, not opinions)
+- Empathetic without being emotional
+
+## 6. GERMAN TERMINOLOGY HANDLING
+When using German terms, format as:
+"Aufenthaltstitel (residence permit / посвідка на проживання)"
+
+Keep German names for:
+- Institutions: BAMF, Jobcenter, Ausländerbehörde
+- Laws: Bürgergeld, Aufenthaltsgesetz
+- Places: Rathaus, Landratsamt
+- Forms: Anmeldung, Abmeldung
+
+Always explain what these mean the first time!
+
+## 7. FACTUAL ACCURACY
+- Only include verifiable facts from the source
+- If something is unclear, say "According to [source]..."
+- Distinguish between confirmed facts and rumors/plans
+- Use present/past tense appropriately (is vs. will be vs. was)
+- Include dates, numbers, and specific details
+
+## 8. CALL TO ACTION
+End articles with practical next steps when relevant:
+- Where to get more info (websites, phone numbers)
+- What documents are needed
+- Deadlines to remember
+- Who to contact
+
+# OUTPUT FORMAT
+
+Write in {$config['name']} ({$config['native_name']}).
+
+Structure your output EXACTLY as:
+
+<title>[Compelling headline, 8-12 words]</title>
+
+<lead>
+[2-3 sentences summarizing the key news. Answer: What happened? Who is affected? Why does it matter?]
+</lead>
+
+<body>
+[Main article body with clear paragraphs. Use <h2> for section headers if article is long.]
+
+[Include relevant context for Ukrainian audience]
+
+[End with practical information or next steps if applicable]
+</body>
+
+{$style_hints}
+
+# QUALITY CHECKLIST (Apply mentally before submitting)
+☐ Is every sentence clear to someone with {$config['level']} language level?
+☐ Did I explain all German bureaucratic terms?
+☐ Is the relevance to Ukrainians in Germany clear?
+☐ Are all facts accurate and properly attributed?
+☐ Is the structure easy to scan?
+☐ Would this pass Deutsche Welle editorial review?
+PROMPT;
+    }
+
+    /**
+     * Rewrite content - Professional Deutsche Welle quality
+     */
+    public function rewrite($content, $style, $language = 'de') {
+        $system_prompt = $this->get_rewrite_system_prompt($language, $style);
+
+        $prompt = <<<PROMPT
+Transform this source material into a professional news article:
+
+---SOURCE MATERIAL---
+{$content}
+---END SOURCE---
+
+Requirements:
+1. Completely rewrite in your own words
+2. Keep all important facts
+3. Make it relevant for Ukrainians in Germany
+4. Follow Deutsche Welle quality standards
+5. Include practical information if applicable
+
+Write the article now:
 PROMPT;
 
-        $prompt = "Rewrite this article:\n\n" . $content;
-
         return $this->complete($prompt, $system_prompt, ['temperature' => 0.7, 'max_tokens' => 4000]);
+    }
+
+    /**
+     * Get translation system prompt
+     */
+    private function get_translation_system_prompt($source_lang, $target_lang, $glossary = []) {
+        $lang_names = [
+            'de' => ['name' => 'German', 'native' => 'Deutsch'],
+            'ua' => ['name' => 'Ukrainian', 'native' => 'Українська'],
+            'ru' => ['name' => 'Russian', 'native' => 'Русский'],
+            'en' => ['name' => 'English', 'native' => 'English'],
+        ];
+
+        $source = $lang_names[$source_lang] ?? ['name' => $source_lang, 'native' => $source_lang];
+        $target = $lang_names[$target_lang] ?? ['name' => $target_lang, 'native' => $target_lang];
+
+        // Comprehensive glossary for Ukrainian audience in Germany
+        $full_glossary = $this->get_comprehensive_glossary($target_lang);
+        $glossary = array_merge($full_glossary, $glossary);
+
+        $glossary_text = '';
+        if (!empty($glossary)) {
+            $glossary_text = "\n\n## MANDATORY GLOSSARY - Use these exact translations:\n";
+            foreach ($glossary as $term => $translation) {
+                $glossary_text .= "• {$term} → {$translation}\n";
+            }
+        }
+
+        return <<<PROMPT
+# ROLE
+You are a professional translator specialized in news content for Ukrainian diaspora in Germany. You combine linguistic precision with cultural adaptation.
+
+# TASK
+Translate from {$source['name']} ({$source['native']}) to {$target['name']} ({$target['native']}).
+
+# TRANSLATION PRINCIPLES
+
+## 1. MEANING OVER WORDS
+- Translate IDEAS, not word-for-word
+- Adapt idioms and expressions naturally
+- Preserve the TONE and IMPACT of original
+- Result should read as if originally written in {$target['name']}
+
+## 2. CULTURAL ADAPTATION
+- Convert cultural references when needed
+- Keep German institution names (BAMF, Jobcenter) but explain if not already explained
+- Dates: Keep DD.MM.YYYY format
+- Numbers: Use local conventions
+- Currency: Keep EUR/€
+
+## 3. PRESERVE STRUCTURE
+- Keep HTML tags exactly as they are
+- Maintain paragraph breaks
+- Preserve bullet points and lists
+- Keep <title>, <lead>, <body> tags if present
+
+## 4. DO NOT TRANSLATE
+- URLs and links
+- Email addresses
+- German institution names (BAMF, Bundesregierung, etc.)
+- Proper names of people
+- Names of laws and regulations in German
+- Technical codes and reference numbers
+
+## 5. QUALITY STANDARDS
+- Natural, fluent {$target['name']}
+- No awkward constructions
+- No "translationese"
+- Appropriate register for news
+{$glossary_text}
+
+# OUTPUT
+Provide ONLY the translated text. No commentary, no explanations.
+PROMPT;
+    }
+
+    /**
+     * Get comprehensive glossary for Ukrainian audience
+     */
+    private function get_comprehensive_glossary($target_lang) {
+        $glossaries = [
+            'de' => [
+                // Keep German as-is for German articles
+            ],
+            'ua' => [
+                // Documents & Status
+                'Aufenthaltstitel' => 'посвідка на проживання (Aufenthaltstitel)',
+                'Aufenthaltserlaubnis' => 'дозвіл на перебування',
+                'Niederlassungserlaubnis' => 'постійний дозвіл на проживання',
+                'Duldung' => 'толеранс/тимчасова відстрочка депортації (Duldung)',
+                'Visum' => 'віза',
+                'Reiseausweis' => 'проїзний документ',
+
+                // Institutions
+                'BAMF' => 'BAMF (Федеральне відомство міграції та біженців)',
+                'Bundesregierung' => 'Федеральний уряд Німеччини',
+                'Ausländerbehörde' => 'відділ у справах іноземців (Ausländerbehörde)',
+                'Jobcenter' => 'Jobcenter (центр зайнятості)',
+                'Arbeitsagentur' => 'Arbeitsagentur (агентство праці)',
+                'Sozialamt' => 'соціальна служба (Sozialamt)',
+                'Rathaus' => 'ратуша/міська адміністрація',
+                'Landratsamt' => 'районна адміністрація (Landratsamt)',
+                'Finanzamt' => 'податкова служба (Finanzamt)',
+                'Standesamt' => 'РАЦС (Standesamt)',
+                'Jugendamt' => 'служба у справах молоді (Jugendamt)',
+                'Gesundheitsamt' => 'санепідстанція (Gesundheitsamt)',
+
+                // Benefits & Money
+                'Bürgergeld' => 'Bürgergeld (соціальна допомога)',
+                'Kindergeld' => 'Kindergeld (допомога на дитину)',
+                'Elterngeld' => 'Elterngeld (батьківська допомога)',
+                'Wohngeld' => 'Wohngeld (житлова субсидія)',
+                'BAföG' => 'BAföG (стипендія на навчання)',
+                'Arbeitslosengeld' => 'допомога по безробіттю',
+                'Sozialhilfe' => 'соціальна допомога',
+                'Grundsicherung' => 'базове забезпечення',
+
+                // Procedures
+                'Anmeldung' => 'реєстрація за місцем проживання (Anmeldung)',
+                'Abmeldung' => 'зняття з реєстрації (Abmeldung)',
+                'Antrag' => 'заява/заявка',
+                'Termin' => 'призначена зустріч/термін',
+                'Bescheid' => 'офіційне рішення/повідомлення',
+                'Einspruch' => 'заперечення/апеляція',
+                'Widerspruch' => 'оскарження',
+
+                // Housing
+                'Mietvertrag' => 'договір оренди',
+                'Kaution' => 'застава за оренду',
+                'Nebenkosten' => 'комунальні платежі',
+                'WG' => 'спільна квартира (WG)',
+                'Wohnungsamt' => 'житловий відділ',
+
+                // Work
+                'Arbeitsvertrag' => 'трудовий договір',
+                'Minijob' => 'Minijob (підробіток до 520€)',
+                'Teilzeit' => 'часткова зайнятість',
+                'Vollzeit' => 'повна зайнятість',
+                'Probezeit' => 'випробувальний термін',
+                'Kündigung' => 'звільнення',
+                'Gehalt' => 'зарплата',
+                'Brutto' => 'брутто (до вирахувань)',
+                'Netto' => 'нетто (на руки)',
+
+                // Education
+                'Kita' => 'дитячий садок (Kita)',
+                'Grundschule' => 'початкова школа',
+                'Gymnasium' => 'гімназія',
+                'Realschule' => 'реальна школа',
+                'Hauptschule' => 'головна школа',
+                'Hochschule' => 'вища школа/університет',
+                'Ausbildung' => 'професійне навчання',
+                'Sprachkurs' => 'мовні курси',
+                'Integrationskurs' => 'інтеграційні курси',
+
+                // Healthcare
+                'Krankenkasse' => 'медична страховка',
+                'Hausarzt' => 'сімейний лікар',
+                'Facharzt' => 'лікар-спеціаліст',
+                'Krankenhaus' => 'лікарня',
+                'Notaufnahme' => 'приймальний покій/швидка',
+                'Rezept' => 'рецепт',
+                'Überweisung' => 'направлення до лікаря',
+                'Versicherungskarte' => 'картка страхування',
+
+                // Transport
+                'MVV' => 'MVV (транспортна мережа Мюнхена)',
+                'S-Bahn' => 'S-Bahn (приміська електричка)',
+                'U-Bahn' => 'U-Bahn (метро)',
+                'Straßenbahn' => 'трамвай',
+                'Monatskarte' => 'місячний проїзний',
+                'Deutschlandticket' => 'Deutschlandticket (проїзний по Німеччині)',
+
+                // Legal
+                'Gesetz' => 'закон',
+                'Verordnung' => 'постанова',
+                'Aufenthaltsgesetz' => 'Закон про перебування іноземців',
+                'Asylgesetz' => 'Закон про притулок',
+            ],
+            'ru' => [
+                // Documents & Status
+                'Aufenthaltstitel' => 'вид на жительство (Aufenthaltstitel)',
+                'Aufenthaltserlaubnis' => 'разрешение на пребывание',
+                'Niederlassungserlaubnis' => 'постоянный вид на жительство',
+                'Duldung' => 'толеранс/временная отсрочка депортации (Duldung)',
+                'Visum' => 'виза',
+                'Reiseausweis' => 'проездной документ',
+
+                // Institutions
+                'BAMF' => 'BAMF (Федеральное ведомство миграции и беженцев)',
+                'Bundesregierung' => 'Федеральное правительство Германии',
+                'Ausländerbehörde' => 'ведомство по делам иностранцев (Ausländerbehörde)',
+                'Jobcenter' => 'Jobcenter (центр занятости)',
+                'Arbeitsagentur' => 'Arbeitsagentur (агентство труда)',
+                'Sozialamt' => 'социальная служба (Sozialamt)',
+                'Rathaus' => 'ратуша/городская администрация',
+                'Landratsamt' => 'районная администрация (Landratsamt)',
+                'Finanzamt' => 'налоговая служба (Finanzamt)',
+                'Standesamt' => 'ЗАГС (Standesamt)',
+                'Jugendamt' => 'служба по делам молодёжи (Jugendamt)',
+                'Gesundheitsamt' => 'санэпидстанция (Gesundheitsamt)',
+
+                // Benefits & Money
+                'Bürgergeld' => 'Bürgergeld (социальное пособие)',
+                'Kindergeld' => 'Kindergeld (пособие на ребёнка)',
+                'Elterngeld' => 'Elterngeld (родительское пособие)',
+                'Wohngeld' => 'Wohngeld (жилищная субсидия)',
+                'BAföG' => 'BAföG (стипендия на обучение)',
+                'Arbeitslosengeld' => 'пособие по безработице',
+                'Sozialhilfe' => 'социальная помощь',
+                'Grundsicherung' => 'базовое обеспечение',
+
+                // Procedures
+                'Anmeldung' => 'регистрация по месту жительства (Anmeldung)',
+                'Abmeldung' => 'снятие с регистрации (Abmeldung)',
+                'Antrag' => 'заявление/заявка',
+                'Termin' => 'назначенная встреча/срок',
+                'Bescheid' => 'официальное решение/уведомление',
+                'Einspruch' => 'возражение/апелляция',
+                'Widerspruch' => 'обжалование',
+
+                // Housing
+                'Mietvertrag' => 'договор аренды',
+                'Kaution' => 'залог за аренду',
+                'Nebenkosten' => 'коммунальные платежи',
+                'WG' => 'совместная квартира (WG)',
+                'Wohnungsamt' => 'жилищный отдел',
+
+                // Work
+                'Arbeitsvertrag' => 'трудовой договор',
+                'Minijob' => 'Minijob (подработка до 520€)',
+                'Teilzeit' => 'частичная занятость',
+                'Vollzeit' => 'полная занятость',
+                'Probezeit' => 'испытательный срок',
+                'Kündigung' => 'увольнение',
+                'Gehalt' => 'зарплата',
+                'Brutto' => 'брутто (до вычетов)',
+                'Netto' => 'нетто (на руки)',
+
+                // Education
+                'Kita' => 'детский сад (Kita)',
+                'Grundschule' => 'начальная школа',
+                'Gymnasium' => 'гимназия',
+                'Realschule' => 'реальная школа',
+                'Hauptschule' => 'главная школа',
+                'Hochschule' => 'высшая школа/университет',
+                'Ausbildung' => 'профессиональное обучение',
+                'Sprachkurs' => 'языковые курсы',
+                'Integrationskurs' => 'интеграционные курсы',
+
+                // Healthcare
+                'Krankenkasse' => 'медицинская страховка',
+                'Hausarzt' => 'семейный врач',
+                'Facharzt' => 'врач-специалист',
+                'Krankenhaus' => 'больница',
+                'Notaufnahme' => 'приёмный покой/скорая',
+                'Rezept' => 'рецепт',
+                'Überweisung' => 'направление к врачу',
+                'Versicherungskarte' => 'карта страхования',
+
+                // Transport
+                'MVV' => 'MVV (транспортная сеть Мюнхена)',
+                'S-Bahn' => 'S-Bahn (пригородная электричка)',
+                'U-Bahn' => 'U-Bahn (метро)',
+                'Straßenbahn' => 'трамвай',
+                'Monatskarte' => 'месячный проездной',
+                'Deutschlandticket' => 'Deutschlandticket (проездной по Германии)',
+
+                // Legal
+                'Gesetz' => 'закон',
+                'Verordnung' => 'постановление',
+                'Aufenthaltsgesetz' => 'Закон о пребывании иностранцев',
+                'Asylgesetz' => 'Закон об убежище',
+            ],
+            'en' => [
+                'BAMF' => 'BAMF (Federal Office for Migration and Refugees)',
+                'Bundesregierung' => 'German Federal Government',
+                'Ausländerbehörde' => 'Foreigners\' Registration Office (Ausländerbehörde)',
+                'Jobcenter' => 'Jobcenter (employment office)',
+                'Bürgergeld' => 'Bürgergeld (citizen\'s benefit)',
+                'Kindergeld' => 'Kindergeld (child benefit)',
+                'Aufenthaltstitel' => 'residence permit (Aufenthaltstitel)',
+                'Anmeldung' => 'residence registration (Anmeldung)',
+            ],
+        ];
+
+        return $glossaries[$target_lang] ?? [];
     }
 
     /**
      * Translate content
      */
     public function translate($content, $source_lang, $target_lang, $glossary = []) {
-        $lang_names = [
-            'de' => 'German',
-            'ua' => 'Ukrainian',
-            'ru' => 'Russian',
-            'en' => 'English',
-        ];
+        $system_prompt = $this->get_translation_system_prompt($source_lang, $target_lang, $glossary);
 
-        $source_name = $lang_names[$source_lang] ?? $source_lang;
-        $target_name = $lang_names[$target_lang] ?? $target_lang;
+        $prompt = "Translate the following text:\n\n{$content}";
 
-        $glossary_text = '';
-        if (!empty($glossary)) {
-            $glossary_text = "\n\nGlossary - use these exact translations:\n";
-            foreach ($glossary as $term => $translation) {
-                $glossary_text .= "- {$term} = {$translation}\n";
-            }
-        }
-
-        // Default glossary for Ukrainian audience
-        $default_glossary = [
-            'de' => [
-                'Aufenthaltstitel' => 'residence permit (посвідка на проживання)',
-                'BAMF' => 'BAMF (do not translate)',
-                'Jobcenter' => 'Jobcenter (do not translate)',
-                'Bürgergeld' => 'Bürgergeld / citizen\'s benefit',
-                'Ausländerbehörde' => 'foreigners\' registration office',
-            ],
-            'ua' => [
-                'Aufenthaltstitel' => 'посвідка на проживання',
-                'BAMF' => 'BAMF',
-                'Jobcenter' => 'Jobcenter (центр зайнятості)',
-                'Bürgergeld' => 'Bürgergeld (допомога громадянам)',
-                'Ausländerbehörde' => 'відділ у справах іноземців',
-            ],
-            'ru' => [
-                'Aufenthaltstitel' => 'вид на жительство',
-                'BAMF' => 'BAMF',
-                'Jobcenter' => 'Jobcenter (центр занятости)',
-                'Bürgergeld' => 'Bürgergeld (пособие)',
-                'Ausländerbehörde' => 'ведомство по делам иностранцев',
-            ],
-        ];
-
-        if (isset($default_glossary[$target_lang])) {
-            $glossary = array_merge($default_glossary[$target_lang], $glossary);
-            $glossary_text = "\n\nGlossary - use these exact translations:\n";
-            foreach ($glossary as $term => $translation) {
-                $glossary_text .= "- {$term} = {$translation}\n";
-            }
-        }
-
-        $system_prompt = <<<PROMPT
-You are a professional translator specializing in news content for Ukrainian audiences in Germany.
-
-Translate from {$source_name} to {$target_name}.
-
-Guidelines:
-1. Maintain the original meaning and tone
-2. Keep the HTML structure intact (preserve all tags)
-3. Do NOT translate URLs, source names, or proper nouns that should stay original
-4. Use natural, fluent {$target_name} - not word-for-word translation
-5. Adapt idioms and expressions appropriately
-6. Keep numbers and dates in the same format
-{$glossary_text}
-
-Output only the translated text, nothing else.
-PROMPT;
-
-        return $this->complete($content, $system_prompt, ['temperature' => 0.3, 'max_tokens' => 6000]);
+        return $this->complete($prompt, $system_prompt, ['temperature' => 0.3, 'max_tokens' => 6000]);
     }
 
     /**
      * Generate SEO metadata
      */
     public function generate_seo($content, $language = 'de') {
-        $lang_names = [
-            'de' => 'German',
-            'ua' => 'Ukrainian',
-            'ru' => 'Russian',
-            'en' => 'English',
+        $lang_configs = [
+            'de' => [
+                'name' => 'German',
+                'examples' => [
+                    'title' => 'Neue Regeln für Aufenthaltstitel 2024: Was Ukrainer wissen müssen',
+                    'description' => 'Ab Januar gelten neue Regeln für Aufenthaltstitel. Wir erklären, was sich ändert und was Sie tun müssen.',
+                ],
+            ],
+            'ua' => [
+                'name' => 'Ukrainian',
+                'examples' => [
+                    'title' => 'Нові правила для посвідок на проживання 2024: що треба знати',
+                    'description' => 'З січня діють нові правила для посвідок. Пояснюємо, що змінюється і що потрібно робити.',
+                ],
+            ],
+            'ru' => [
+                'name' => 'Russian',
+                'examples' => [
+                    'title' => 'Новые правила для видов на жительство 2024: что нужно знать',
+                    'description' => 'С января действуют новые правила для ВНЖ. Объясняем, что меняется и что нужно делать.',
+                ],
+            ],
+            'en' => [
+                'name' => 'English',
+                'examples' => [
+                    'title' => 'New Residence Permit Rules 2024: What Ukrainians Need to Know',
+                    'description' => 'New residence permit rules take effect in January. We explain what\'s changing and what to do.',
+                ],
+            ],
         ];
 
-        $lang_name = $lang_names[$language] ?? 'German';
+        $config = $lang_configs[$language] ?? $lang_configs['de'];
 
         $system_prompt = <<<PROMPT
-You are an SEO expert for a news website targeting Ukrainians in Germany.
+# ROLE
+You are an SEO specialist for a news website targeting Ukrainians in Germany.
 
-Generate SEO metadata in {$lang_name} for the provided article.
+# TASK
+Generate SEO metadata in {$config['name']} for the provided article.
 
-Requirements:
-1. SEO Title: Max 60 characters, include main keyword near beginning, compelling
-2. Meta Description: Max 155 characters, include primary keyword, encourage clicks
-3. Keywords: 5-10 relevant keywords/phrases
-4. Slug: URL-friendly, lowercase, hyphens instead of spaces, max 60 chars
+# REQUIREMENTS
 
-Output as JSON:
+## SEO Title (max 60 characters)
+- Main keyword near the beginning
+- Clear, compelling, click-worthy
+- Include year if time-sensitive
+- Example: "{$config['examples']['title']}"
+
+## Meta Description (max 155 characters)
+- Summarize the value for reader
+- Include primary keyword naturally
+- End with implicit call to action
+- Example: "{$config['examples']['description']}"
+
+## Keywords (5-10)
+- Mix of broad and specific terms
+- Include German terms if relevant (Bürgergeld, BAMF, etc.)
+- Think: what would Ukrainians search for?
+
+## Slug (URL-friendly)
+- Lowercase, hyphens between words
+- Max 60 characters
+- No special characters
+- Descriptive and keyword-rich
+
+# OUTPUT FORMAT (JSON only)
 {
   "title": "SEO title here",
   "description": "Meta description here",
-  "keywords": ["keyword1", "keyword2", ...],
+  "keywords": ["keyword1", "keyword2", "keyword3"],
   "slug": "url-slug-here"
 }
 PROMPT;
@@ -278,7 +696,6 @@ PROMPT;
         // Parse JSON from response
         $json_content = $result['content'];
 
-        // Try to extract JSON from response
         if (preg_match('/\{[\s\S]*\}/', $json_content, $matches)) {
             $parsed = json_decode($matches[0], true);
             if ($parsed) {
@@ -303,27 +720,68 @@ PROMPT;
      */
     public function extract_entities($content) {
         $system_prompt = <<<PROMPT
-Analyze the provided news article and extract:
-1. Named entities (persons, organizations, locations, dates)
-2. Main topics/keywords
-3. Geographic relevance
-4. Category suggestion
+# ROLE
+You are a news analyst specializing in content for Ukrainian audiences in Germany.
 
-Output as JSON:
+# TASK
+Analyze the provided news article and extract structured data.
+
+# EXTRACT
+
+## Named Entities
+- PERSONS: Politicians, officials, experts mentioned
+- ORGANIZATIONS: Companies, agencies, NGOs, parties
+- LOCATIONS: Cities, regions, countries, addresses
+- DATES: Specific dates, deadlines, time periods
+
+## Keywords
+5-10 most important terms for this article
+Focus on: topics, issues, affected groups
+
+## Geographic Relevance
+Rate relevance (high/medium/low) for:
+- München (local)
+- Bayern (regional)
+- Deutschland (national)
+- EU (European)
+- Ukraine (Ukrainian)
+- International
+
+## Category
+Choose ONE primary category:
+- politik (political news, government decisions)
+- wirtschaft (economy, jobs, business)
+- migration (visa, residence, integration)
+- gesellschaft (society, education, culture)
+- lokales (local Munich/Bavaria news)
+- verkehr (transport, MVV, traffic)
+- wetter (weather, alerts, warnings)
+- sport (sports)
+- kultur (culture, events)
+- nachrichten (general news)
+
+## Sentiment
+-1 (very negative) to +1 (very positive), 0 is neutral
+
+# OUTPUT FORMAT (JSON only)
 {
   "entities": {
-    "persons": ["name1", "name2"],
-    "organizations": ["org1", "org2"],
-    "locations": ["loc1", "loc2"],
-    "dates": ["date1", "date2"]
+    "persons": ["Name 1", "Name 2"],
+    "organizations": ["Org 1", "Org 2"],
+    "locations": ["Location 1", "Location 2"],
+    "dates": ["Date 1", "Date 2"]
   },
   "keywords": ["keyword1", "keyword2"],
-  "geo": ["München", "Bayern"],
-  "category": "politik",
+  "geo": {
+    "muenchen": "high|medium|low|none",
+    "bayern": "high|medium|low|none",
+    "deutschland": "high|medium|low|none",
+    "eu": "high|medium|low|none",
+    "ukraine": "high|medium|low|none"
+  },
+  "category": "category_key",
   "sentiment": 0.0
 }
-
-Sentiment: -1 (very negative) to 1 (very positive), 0 is neutral
 PROMPT;
 
         $result = $this->complete($content, $system_prompt, ['temperature' => 0.3, 'max_tokens' => 1000]);
@@ -332,15 +790,24 @@ PROMPT;
             return $result;
         }
 
-        // Parse JSON
         if (preg_match('/\{[\s\S]*\}/', $result['content'], $matches)) {
             $parsed = json_decode($matches[0], true);
             if ($parsed) {
+                // Convert geo to simple array for backward compatibility
+                $geo_array = [];
+                if (isset($parsed['geo']) && is_array($parsed['geo'])) {
+                    foreach ($parsed['geo'] as $location => $relevance) {
+                        if ($relevance === 'high' || $relevance === 'medium') {
+                            $geo_array[] = ucfirst($location);
+                        }
+                    }
+                }
+
                 return [
                     'success' => true,
                     'entities' => $parsed['entities'] ?? [],
                     'keywords' => $parsed['keywords'] ?? [],
-                    'geo' => $parsed['geo'] ?? [],
+                    'geo' => $geo_array,
                     'category' => $parsed['category'] ?? 'nachrichten',
                     'sentiment' => $parsed['sentiment'] ?? 0,
                 ];
@@ -360,20 +827,28 @@ PROMPT;
         $categories_list = implode(', ', array_keys($categories));
 
         $system_prompt = <<<PROMPT
-Classify the provided news article into one of these categories:
+# TASK
+Classify the provided news article into exactly ONE of these categories:
 {$categories_list}
 
-Consider:
-1. Main topic and subject matter
-2. Target audience relevance
-3. Content type (breaking news, analysis, guide, etc.)
+# CATEGORIES GUIDE
+- politik: Government, laws, elections, parties, political decisions
+- wirtschaft: Economy, jobs, companies, inflation, benefits, financial news
+- migration: Visas, residence permits, integration, asylum, BAMF decisions
+- gesellschaft: Education, healthcare, social issues, demographics
+- lokales: Munich/Bavaria specific local news
+- verkehr: Public transport, MVV, traffic, roads, mobility
+- wetter: Weather forecasts, warnings, climate events
+- sport: All sports news
+- kultur: Culture, events, entertainment, art, festivals
+- nachrichten: General news that doesn't fit other categories
 
-Output as JSON:
+# OUTPUT FORMAT (JSON only)
 {
   "category": "category_key",
   "confidence": 0.95,
-  "subcategory": "optional_subcategory",
-  "tags": ["tag1", "tag2"]
+  "subcategory": "optional detail",
+  "tags": ["tag1", "tag2", "tag3"]
 }
 PROMPT;
 
@@ -383,7 +858,6 @@ PROMPT;
             return $result;
         }
 
-        // Parse JSON
         if (preg_match('/\{[\s\S]*\}/', $result['content'], $matches)) {
             $parsed = json_decode($matches[0], true);
             if ($parsed) {
@@ -417,16 +891,19 @@ PROMPT;
         $lang_name = $lang_names[$language] ?? 'German';
 
         $system_prompt = <<<PROMPT
-Summarize the provided article in {$lang_name}.
+# TASK
+Create a concise summary in {$lang_name}.
 
-Requirements:
-1. Maximum {$max_length} characters
-2. Capture the main point and key facts
-3. Neutral tone
-4. Complete sentences
-5. No meta-commentary
+# REQUIREMENTS
+- Maximum {$max_length} characters
+- Capture the MAIN point
+- Include key facts (who, what, when)
+- Neutral, factual tone
+- Complete sentences
+- Must stand alone (reader needs no other context)
 
-Output only the summary text.
+# OUTPUT
+Provide only the summary text, nothing else.
 PROMPT;
 
         $result = $this->complete($content, $system_prompt, ['temperature' => 0.3, 'max_tokens' => 300]);
@@ -437,7 +914,7 @@ PROMPT;
 
         return [
             'success' => true,
-            'summary' => substr($result['content'], 0, $max_length),
+            'summary' => mb_substr(trim($result['content']), 0, $max_length),
         ];
     }
 
@@ -452,8 +929,8 @@ PROMPT;
             ];
         }
 
-        $result = $this->complete('Say "OK" if you can read this.', '', [
-            'max_tokens' => 10,
+        $result = $this->complete('Reply with exactly: "Connection OK"', '', [
+            'max_tokens' => 20,
             'temperature' => 0,
         ]);
 
@@ -472,86 +949,91 @@ PROMPT;
     }
 
     /**
-     * Generate full article from facts
+     * Generate full article from multiple sources (event clustering)
      */
     public function generate_article($facts, $sources, $language = 'de') {
         $sources_text = '';
         foreach ($sources as $source) {
-            $sources_text .= "- {$source['name']} ({$source['date']}): {$source['title']}\n";
+            $sources_text .= "### Source: {$source['name']} ({$source['date']})\n";
+            $sources_text .= "Title: {$source['title']}\n";
             if (!empty($source['summary'])) {
-                $sources_text .= "  Summary: {$source['summary']}\n";
+                $sources_text .= "Content: {$source['summary']}\n";
             }
+            $sources_text .= "\n";
         }
 
+        $system_prompt = $this->get_rewrite_system_prompt($language, '
+## SPECIAL INSTRUCTIONS FOR MULTI-SOURCE ARTICLE
+- You have information from MULTIPLE sources about the SAME event
+- Cross-reference facts - only include what 2+ sources confirm
+- If sources disagree, present both perspectives
+- Prioritize official sources over media speculation
+- Create a comprehensive picture, not just a rehash of one source
+');
+
+        $prompt = <<<PROMPT
+Create a comprehensive article synthesizing these sources:
+
+{$sources_text}
+
+Key verified facts:
+{$facts}
+
+Requirements:
+1. Synthesize information from ALL sources
+2. Fact-check: only include claims that appear in 2+ sources
+3. Note any contradictions between sources
+4. Create original, comprehensive coverage
+5. Follow Deutsche Welle quality standards
+PROMPT;
+
+        return $this->complete($prompt, $system_prompt, ['temperature' => 0.7, 'max_tokens' => 4000]);
+    }
+
+    /**
+     * Generate Telegram-optimized summary
+     */
+    public function generate_telegram_summary($content, $language = 'de') {
         $lang_configs = [
-            'de' => [
-                'name' => 'German',
-                'what' => 'Was ist passiert?',
-                'why' => 'Warum ist das wichtig für Ukrainer in Deutschland?',
-                'action' => 'Was kann man tun?',
-            ],
-            'ua' => [
-                'name' => 'Ukrainian',
-                'what' => 'Що сталося?',
-                'why' => 'Чому це важливо для українців у Німеччині?',
-                'action' => 'Що можна зробити?',
-            ],
-            'ru' => [
-                'name' => 'Russian',
-                'what' => 'Что произошло?',
-                'why' => 'Почему это важно для украинцев в Германии?',
-                'action' => 'Что можно сделать?',
-            ],
-            'en' => [
-                'name' => 'English',
-                'what' => 'What happened?',
-                'why' => 'Why is this important for Ukrainians in Germany?',
-                'action' => 'What can you do?',
-            ],
+            'de' => ['flag' => '🇩🇪', 'read_more' => 'Mehr lesen'],
+            'ua' => ['flag' => '🇺🇦', 'read_more' => 'Читати далі'],
+            'ru' => ['flag' => '🇷🇺', 'read_more' => 'Читать дальше'],
+            'en' => ['flag' => '🇬🇧', 'read_more' => 'Read more'],
         ];
 
         $config = $lang_configs[$language] ?? $lang_configs['de'];
 
         $system_prompt = <<<PROMPT
-You are a professional news editor for a platform serving Ukrainians in Munich/Bavaria/Germany.
+# TASK
+Create a Telegram post summary optimized for mobile reading.
 
-Create a NEW, UNIQUE article in {$config['name']} based on the provided facts from multiple sources.
+# FORMAT
+📰 [Attention-grabbing headline]
 
-IMPORTANT RULES:
-1. DO NOT copy text directly from sources - create completely original content
-2. Only use very short direct quotes (max 10 words) in quotation marks
-3. Verify facts appear in at least 2 sources before including
-4. Write for Ukrainian audience (A2-B2 {$config['name']} level if not Ukrainian)
-5. Be factual, neutral, helpful
+[2-3 sentence summary - the essential facts]
 
-STRUCTURE YOUR OUTPUT AS:
-<title>[Compelling title, max 60 chars]</title>
-<lead>[2-3 sentence summary of the main news]</lead>
+{$config['flag']} [1 emoji relevant to topic] [Category tag]
 
-<section id="what">
-<h2>{$config['what']}</h2>
-<p>[Explain what happened, the facts]</p>
-</section>
+# REQUIREMENTS
+- Max 280 characters total (excluding headline)
+- Use 1-2 relevant emojis only
+- Punchy, scannable text
+- Must make reader want to click through
+- End with implicit "read more" hook
 
-<section id="why">
-<h2>{$config['why']}</h2>
-<p>[Explain relevance for Ukrainian community]</p>
-</section>
-
-<section id="action">
-<h2>{$config['action']}</h2>
-<p>[Practical advice, links, contacts]</p>
-<ul>
-<li>[Action item 1]</li>
-<li>[Action item 2]</li>
-</ul>
-</section>
-
-Article should be 300-500 words.
+# OUTPUT
+Provide only the formatted Telegram post, nothing else.
 PROMPT;
 
-        $prompt = "Create an article from these sources:\n\n{$sources_text}\n\nKey facts:\n{$facts}";
+        $result = $this->complete($content, $system_prompt, ['temperature' => 0.7, 'max_tokens' => 300]);
 
-        return $this->complete($prompt, $system_prompt, ['temperature' => 0.7, 'max_tokens' => 4000]);
+        if (!$result['success']) {
+            return $result;
+        }
+
+        return [
+            'success' => true,
+            'telegram_text' => trim($result['content']),
+        ];
     }
 }
