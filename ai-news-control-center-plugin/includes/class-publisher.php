@@ -62,8 +62,14 @@ class AINCC_Publisher {
                 '_aincc_draft_id' => $draft_id,
                 '_aincc_lang' => $draft['lang'],
                 '_aincc_sources' => $draft['sources'],
+                // Yoast SEO
                 '_yoast_wpseo_title' => $draft['seo_title'],
                 '_yoast_wpseo_metadesc' => $draft['meta_description'],
+                // Rank Math SEO
+                'rank_math_title' => $draft['seo_title'],
+                'rank_math_description' => $draft['meta_description'],
+                'rank_math_focus_keyword' => $this->get_focus_keyword($draft),
+                'rank_math_seo_score' => 80,
             ],
         ];
 
@@ -198,6 +204,23 @@ class AINCC_Publisher {
         }
 
         return $content;
+    }
+
+    /**
+     * Get focus keyword from draft keywords
+     */
+    private function get_focus_keyword($draft) {
+        $keywords = json_decode($draft['keywords'] ?? '[]', true);
+        if (is_array($keywords) && !empty($keywords)) {
+            // Return first keyword as focus keyword
+            return is_string($keywords[0]) ? $keywords[0] : '';
+        }
+        // Fallback: extract from title
+        $title_words = explode(' ', $draft['title'] ?? '');
+        $filtered = array_filter($title_words, function($w) {
+            return strlen($w) > 4;
+        });
+        return !empty($filtered) ? reset($filtered) : '';
     }
 
     /**

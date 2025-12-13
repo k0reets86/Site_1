@@ -633,6 +633,15 @@ class AINCC_Content_Processor {
         $this->db->insert_draft($source_draft);
         $drafts[$source_lang] = $source_draft_id;
 
+        // Auto-assign image to source language draft
+        try {
+            $image_handler = new AINCC_Image_Handler();
+            $keywords = $seo['success'] && !empty($seo['keywords']) ? $seo['keywords'] : ($analysis['keywords'] ?? []);
+            $image_handler->assign_to_draft($source_draft_id);
+        } catch (Exception $e) {
+            AINCC_Logger::warning('Auto-assign image failed', ['error' => $e->getMessage()]);
+        }
+
         // Translate to other languages
         foreach ($target_langs as $target_lang) {
             if ($target_lang === $source_lang) {
@@ -690,88 +699,167 @@ class AINCC_Content_Processor {
      * Process article from URL
      */
     public function process_article_from_url($url, $source_lang = 'de', $target_langs = ['de', 'ua', 'ru', 'en'], $category = 'nachrichten') {
-        // Fetch content from URL
-        $parser = new AINCC_RSS_Parser();
-        $fetched = $parser->fetch_full_content($url);
+        // Fetch content from URL using improved method
+        $response = wp_remote_get($url, [
+            'timeout' => 30,
+            'headers' => [
+                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language' => 'de-DE,de;q=0.9,en;q=0.8',
+            ],
+        ]);
 
-        if (!$fetched || empty($fetched['text'])) {
+        if (is_wp_error($response)) {
+            AINCC_Logger::error('URL fetch failed', ['url' => $url, 'error' => $response->get_error_message()]);
             return [
                 'success' => false,
-                'error' => 'Не удалось получить содержимое страницы',
+                'error' => 'Не удалось загрузить страницу: ' . $response->get_error_message(),
             ];
         }
 
-        $original_content = $fetched['html'] ?: $fetched['text'];
+        $html = wp_remote_retrieve_body($response);
 
-        // Use AI to extract article data
-        $extraction_prompt = "Проанализируй HTML-контент и извлеки статью в формате JSON:
-{
-  \"title\": \"заголовок статьи\",
-  \"lead\": \"первый абзац или лид (1-2 предложения)\",
-  \"body\": \"основной текст статьи в HTML формате\",
-  \"author\": \"автор если есть\",
-  \"date\": \"дата публикации если есть\"
-}
+        if (empty($html)) {
+            return [
+                'success' => false,
+                'error' => 'Пустой ответ от сервера',
+            ];
+        }
 
-Верни ТОЛЬКО JSON, никаких пояснений.";
+        // Extract title using multiple methods
+        $title = '';
 
-        $extracted = $this->ai->complete($original_content, $extraction_prompt);
+        // Try og:title first (most reliable)
+        if (preg_match('/property=["\']og:title["\'][^>]*content=["\']([^"\']+)/i', $html, $m)) {
+            $title = html_entity_decode($m[1], ENT_QUOTES, 'UTF-8');
+        }
+        // Try meta title
+        if (empty($title) && preg_match('/name=["\']title["\'][^>]*content=["\']([^"\']+)/i', $html, $m)) {
+            $title = html_entity_decode($m[1], ENT_QUOTES, 'UTF-8');
+        }
+        // Try <h1>
+        if (empty($title) && preg_match('/<h1[^>]*>([^<]+)<\/h1>/i', $html, $m)) {
+            $title = html_entity_decode(trim($m[1]), ENT_QUOTES, 'UTF-8');
+        }
+        // Try <title>
+        if (empty($title) && preg_match('/<title[^>]*>([^<]+)<\/title>/i', $html, $m)) {
+            $title = html_entity_decode(trim($m[1]), ENT_QUOTES, 'UTF-8');
+            // Remove site name from title
+            $title = preg_replace('/\s*[\|\-–—]\s*[^|\-–—]+$/', '', $title);
+        }
 
-        if (!$extracted['success']) {
-            // Fallback: use simple extraction
-            $title = $this->extract_title_from_html($original_content);
-            $body = $fetched['text'];
-            $lead = substr($body, 0, 200) . '...';
-        } else {
-            // Parse JSON response
-            $data = json_decode($extracted['content'], true);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                // Try to extract JSON from response
-                if (preg_match('/\{[\s\S]*\}/', $extracted['content'], $matches)) {
-                    $data = json_decode($matches[0], true);
+        // Get description/lead
+        $lead = '';
+        if (preg_match('/property=["\']og:description["\'][^>]*content=["\']([^"\']+)/i', $html, $m)) {
+            $lead = html_entity_decode($m[1], ENT_QUOTES, 'UTF-8');
+        } elseif (preg_match('/name=["\']description["\'][^>]*content=["\']([^"\']+)/i', $html, $m)) {
+            $lead = html_entity_decode($m[1], ENT_QUOTES, 'UTF-8');
+        }
+
+        // Extract main content
+        $body = '';
+        $patterns = [
+            '/<article[^>]*>(.*?)<\/article>/is',
+            '/<div[^>]*class="[^"]*article[-_]?body[^"]*"[^>]*>(.*?)<\/div>/is',
+            '/<div[^>]*class="[^"]*entry[-_]?content[^"]*"[^>]*>(.*?)<\/div>/is',
+            '/<div[^>]*class="[^"]*post[-_]?content[^"]*"[^>]*>(.*?)<\/div>/is',
+            '/<main[^>]*>(.*?)<\/main>/is',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $html, $m)) {
+                $body = $m[1];
+                break;
+            }
+        }
+
+        // Clean body
+        if ($body) {
+            $body = preg_replace('/<script[^>]*>.*?<\/script>/is', '', $body);
+            $body = preg_replace('/<style[^>]*>.*?<\/style>/is', '', $body);
+            $body = preg_replace('/<nav[^>]*>.*?<\/nav>/is', '', $body);
+            $body = preg_replace('/<aside[^>]*>.*?<\/aside>/is', '', $body);
+            $body = preg_replace('/<footer[^>]*>.*?<\/footer>/is', '', $body);
+            $body = preg_replace('/<div[^>]*class="[^"]*(?:share|social|comment|related|sidebar)[^"]*"[^>]*>.*?<\/div>/is', '', $body);
+        }
+
+        $body_text = wp_strip_all_tags($body ?: $html);
+        $body_text = preg_replace('/\s+/', ' ', $body_text);
+        $body_text = trim($body_text);
+
+        // If no title found, try to generate one from URL or content
+        if (empty($title)) {
+            // Try to get from URL path
+            $path = parse_url($url, PHP_URL_PATH);
+            if ($path) {
+                $slug = basename($path);
+                $slug = preg_replace('/\.(html?|php|aspx?)$/i', '', $slug);
+                $slug = str_replace(['-', '_'], ' ', $slug);
+                $title = ucfirst($slug);
+            }
+
+            // If still empty, use first sentence of content
+            if (empty($title) && $body_text) {
+                $sentences = preg_split('/[.!?]+/', $body_text, 2);
+                if (!empty($sentences[0])) {
+                    $title = trim(substr($sentences[0], 0, 100));
                 }
             }
-
-            if (!$data) {
-                $title = $this->extract_title_from_html($original_content);
-                $body = $fetched['text'];
-                $lead = substr($body, 0, 200) . '...';
-            } else {
-                $title = $data['title'] ?? '';
-                $lead = $data['lead'] ?? '';
-                $body = $data['body'] ?? $fetched['text'];
-            }
         }
 
+        // Final fallback - generate title from URL domain
         if (empty($title)) {
+            $host = parse_url($url, PHP_URL_HOST);
+            $title = "Новость с " . $host;
+        }
+
+        // Ensure we have some body content
+        if (empty($body_text) || strlen($body_text) < 100) {
             return [
                 'success' => false,
-                'error' => 'Не удалось извлечь заголовок',
+                'error' => 'Не удалось извлечь содержимое статьи. Страница может быть защищена или иметь нестандартную структуру.',
             ];
         }
 
-        // Now rewrite the article using AI for better quality
-        $full_content = $title . "\n\n" . $lead . "\n\n" . $body;
-        $rewritten = $this->ai->rewrite($full_content, 'News article for Ukrainian audience in Germany. Professional, factual style like Deutsche Welle.', $source_lang);
-
-        if ($rewritten['success']) {
-            $parsed = $this->parse_generated_content($rewritten['content'], $source_lang);
-            if ($parsed['title']) {
-                $title = $parsed['title'];
-            }
-            if ($parsed['lead']) {
-                $lead = $parsed['lead'];
-            }
-            if ($parsed['body']) {
-                $body = $parsed['body'];
+        // Get lead from body if not found
+        if (empty($lead)) {
+            $lead = substr($body_text, 0, 200);
+            if (strlen($body_text) > 200) {
+                $lead .= '...';
             }
         }
 
-        // Create article data for manual processing
+        // Use AI to rewrite/improve the article
+        $full_content = $title . "\n\n" . $lead . "\n\n" . ($body ?: $body_text);
+
+        try {
+            $rewritten = $this->ai->rewrite(
+                $full_content,
+                'Профессиональная новостная статья. Факты, ясность, без эмоций. Стиль Deutsche Welle.',
+                $source_lang
+            );
+
+            if ($rewritten['success']) {
+                $parsed = $this->parse_generated_content($rewritten['content'], $source_lang);
+                if (!empty($parsed['title'])) {
+                    $title = $parsed['title'];
+                }
+                if (!empty($parsed['lead'])) {
+                    $lead = $parsed['lead'];
+                }
+                if (!empty($parsed['body'])) {
+                    $body = $parsed['body'];
+                }
+            }
+        } catch (Exception $e) {
+            AINCC_Logger::warning('AI rewrite failed, using extracted content', ['error' => $e->getMessage()]);
+        }
+
+        // Create article data for processing
         $article_data = [
             'title' => $title,
             'lead' => $lead,
-            'body' => $body,
+            'body' => $body ?: $body_text,
             'source_lang' => $source_lang,
             'target_langs' => $target_langs,
             'category' => $category,
@@ -784,8 +872,14 @@ class AINCC_Content_Processor {
             ],
         ];
 
-        // Use existing manual article processor
-        return $this->process_manual_article($article_data);
+        // Process the article
+        $result = $this->process_manual_article($article_data);
+
+        if ($result['success']) {
+            $result['title'] = $title;
+        }
+
+        return $result;
     }
 
     /**

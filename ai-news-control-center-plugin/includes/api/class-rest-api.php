@@ -352,6 +352,24 @@ class AINCC_REST_API {
                 'per_page' => ['type' => 'integer', 'default' => 10],
             ],
         ]);
+
+        // AI check text
+        register_rest_route(self::NAMESPACE, '/ai/check-text', [
+            'methods' => 'POST',
+            'callback' => [$this, 'check_text_with_ai'],
+            'permission_callback' => [$this, 'check_permission'],
+            'args' => [
+                'text' => ['type' => 'string', 'required' => true],
+                'lang' => ['type' => 'string', 'default' => 'de'],
+            ],
+        ]);
+
+        // Toggle source enabled status
+        register_rest_route(self::NAMESPACE, '/sources/(?P<id>[a-zA-Z0-9_-]+)/toggle', [
+            'methods' => 'POST',
+            'callback' => [$this, 'toggle_source'],
+            'permission_callback' => [$this, 'check_permission'],
+        ]);
     }
 
     /**
@@ -1136,5 +1154,88 @@ class AINCC_REST_API {
         ];
 
         return $map[$period] ?? 7;
+    }
+
+    /**
+     * Check and improve text with AI
+     */
+    public function check_text_with_ai($request) {
+        $text = $request->get_param('text');
+        $lang = $request->get_param('lang') ?: 'de';
+
+        if (empty($text)) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Текст не указан',
+            ], 400);
+        }
+
+        try {
+            $ai = AINCC_AI_Provider_Factory::create();
+
+            $prompt = "Улучши этот текст, исправь грамматические ошибки, сделай его более читаемым и профессиональным. Сохрани смысл и факты. Верни ТОЛЬКО улучшенный текст без пояснений:";
+
+            $result = $ai->complete($text, $prompt);
+
+            if ($result['success']) {
+                return new WP_REST_Response([
+                    'success' => true,
+                    'improved' => trim($result['content']),
+                    'original' => $text,
+                ], 200);
+            }
+
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => $result['error'] ?? 'AI недоступен',
+            ], 400);
+
+        } catch (Exception $e) {
+            AINCC_Logger::error('AI check text failed', ['error' => $e->getMessage()]);
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Ошибка AI: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Toggle source enabled status
+     */
+    public function toggle_source($request) {
+        global $wpdb;
+        $id = $request->get_param('id');
+
+        $db = new AINCC_Database();
+        $source = $db->get_source($id);
+
+        if (!$source) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Источник не найден',
+            ], 404);
+        }
+
+        $new_status = $source['enabled'] ? 0 : 1;
+
+        $result = $wpdb->update(
+            $db->table('sources'),
+            ['enabled' => $new_status],
+            ['id' => $id]
+        );
+
+        if ($result !== false) {
+            AINCC_Logger::info('Source toggled', ['id' => $id, 'enabled' => $new_status]);
+            return new WP_REST_Response([
+                'success' => true,
+                'enabled' => (bool) $new_status,
+                'message' => $new_status ? 'Источник включен' : 'Источник отключен',
+            ], 200);
+        }
+
+        return new WP_REST_Response([
+            'success' => false,
+            'message' => 'Ошибка обновления',
+        ], 500);
     }
 }
