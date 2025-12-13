@@ -325,7 +325,15 @@ class AINCC_Database {
      * Insert default RSS sources
      */
     private function insert_default_sources() {
+        $this->load_default_sources();
+    }
+
+    /**
+     * Load default sources (public method for reinit)
+     */
+    public function load_default_sources() {
         $sources = $this->get_default_sources();
+        $inserted = 0;
 
         foreach ($sources as $source) {
             $exists = $this->wpdb->get_var(
@@ -336,13 +344,18 @@ class AINCC_Database {
             );
 
             if (!$exists) {
-                $this->wpdb->insert(
+                $result = $this->wpdb->insert(
                     $this->table('sources'),
                     $source,
                     ['%s', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%d', '%d']
                 );
+                if ($result) {
+                    $inserted++;
+                }
             }
         }
+
+        return $inserted;
     }
 
     /**
@@ -583,6 +596,102 @@ class AINCC_Database {
                 'category' => 'ukraine',
                 'trust_score' => 0.88,
                 'fetch_interval' => 10,
+                'enabled' => 1
+            ],
+            [
+                'id' => 'unian_ua',
+                'name' => 'УНІАН',
+                'method' => 'rss',
+                'url' => 'https://rss.unian.net/site/news_ukr.rss',
+                'lang' => 'uk',
+                'geo' => 'Ukraine',
+                'category' => 'ukraine',
+                'trust_score' => 0.80,
+                'fetch_interval' => 5,
+                'enabled' => 1
+            ],
+            [
+                'id' => 'unian_ru',
+                'name' => 'УНИ|АН Русский',
+                'method' => 'rss',
+                'url' => 'https://rss.unian.net/site/news_rus.rss',
+                'lang' => 'ru',
+                'geo' => 'Ukraine',
+                'category' => 'ukraine',
+                'trust_score' => 0.80,
+                'fetch_interval' => 5,
+                'enabled' => 1
+            ],
+            [
+                'id' => 'unian_de',
+                'name' => 'UNIAN Deutsch',
+                'method' => 'rss',
+                'url' => 'https://rss.unian.net/site/news_deu.rss',
+                'lang' => 'de',
+                'geo' => 'Ukraine',
+                'category' => 'ukraine',
+                'trust_score' => 0.80,
+                'fetch_interval' => 10,
+                'enabled' => 1
+            ],
+            [
+                'id' => 'liga_ua',
+                'name' => 'Ліга.net',
+                'method' => 'rss',
+                'url' => 'https://news.liga.net/all/rss.xml',
+                'lang' => 'uk',
+                'geo' => 'Ukraine',
+                'category' => 'ukraine',
+                'trust_score' => 0.78,
+                'fetch_interval' => 10,
+                'enabled' => 1
+            ],
+            [
+                'id' => 'nv_ua',
+                'name' => 'НВ (Новое Время)',
+                'method' => 'rss',
+                'url' => 'https://nv.ua/rss/all.xml',
+                'lang' => 'uk',
+                'geo' => 'Ukraine',
+                'category' => 'ukraine',
+                'trust_score' => 0.80,
+                'fetch_interval' => 10,
+                'enabled' => 1
+            ],
+            [
+                'id' => 'eurointegration',
+                'name' => 'Європейська правда',
+                'method' => 'rss',
+                'url' => 'https://www.eurointegration.com.ua/rss/',
+                'lang' => 'uk',
+                'geo' => 'Ukraine',
+                'category' => 'ukraine',
+                'trust_score' => 0.85,
+                'fetch_interval' => 15,
+                'enabled' => 1
+            ],
+            [
+                'id' => 'hromadske',
+                'name' => 'Громадське',
+                'method' => 'rss',
+                'url' => 'https://hromadske.ua/rss',
+                'lang' => 'uk',
+                'geo' => 'Ukraine',
+                'category' => 'ukraine',
+                'trust_score' => 0.85,
+                'fetch_interval' => 10,
+                'enabled' => 1
+            ],
+            [
+                'id' => 'zn_ua',
+                'name' => 'Дзеркало тижня',
+                'method' => 'rss',
+                'url' => 'https://zn.ua/rss/full.rss',
+                'lang' => 'uk',
+                'geo' => 'Ukraine',
+                'category' => 'ukraine',
+                'trust_score' => 0.85,
+                'fetch_interval' => 15,
                 'enabled' => 1
             ],
 
@@ -874,7 +983,8 @@ class AINCC_Database {
                  ORDER BY last_fetched_at ASC
                  LIMIT %d",
                 $limit
-            )
+            ),
+            ARRAY_A
         );
     }
 
@@ -1326,7 +1436,8 @@ class AINCC_Database {
      */
     public function get_all_sources() {
         return $this->wpdb->get_results(
-            "SELECT * FROM {$this->table('sources')} ORDER BY name ASC"
+            "SELECT * FROM {$this->table('sources')} ORDER BY name ASC",
+            ARRAY_A
         );
     }
 

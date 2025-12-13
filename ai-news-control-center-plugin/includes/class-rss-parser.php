@@ -542,12 +542,19 @@ class AINCC_RSS_Parser {
      * Test a source URL
      */
     public function test_source($url) {
+        if (empty($url)) {
+            return [
+                'success' => false,
+                'message' => 'URL не указан',
+            ];
+        }
+
         $content = $this->fetch_feed($url);
 
         if (!$content) {
             return [
                 'success' => false,
-                'message' => 'Failed to fetch feed',
+                'message' => 'Не удалось загрузить RSS ленту. Проверьте URL.',
             ];
         }
 
@@ -563,13 +570,13 @@ class AINCC_RSS_Parser {
         if (empty($items)) {
             return [
                 'success' => false,
-                'message' => 'No items found in feed',
+                'message' => 'RSS лента пуста или неверный формат',
             ];
         }
 
         return [
             'success' => true,
-            'message' => 'Feed is valid',
+            'message' => 'RSS лента валидна',
             'item_count' => count($items),
             'sample_item' => $items[0],
         ];
@@ -580,6 +587,28 @@ class AINCC_RSS_Parser {
      */
     public function add_source($data) {
         global $wpdb;
+
+        // Validate required fields
+        if (empty($data['name'])) {
+            return [
+                'success' => false,
+                'message' => 'Название источника обязательно',
+            ];
+        }
+
+        if (empty($data['url'])) {
+            return [
+                'success' => false,
+                'message' => 'URL источника обязателен',
+            ];
+        }
+
+        if (!filter_var($data['url'], FILTER_VALIDATE_URL)) {
+            return [
+                'success' => false,
+                'message' => 'Некорректный URL',
+            ];
+        }
 
         $defaults = [
             'method' => 'rss',
@@ -598,6 +627,22 @@ class AINCC_RSS_Parser {
             $data['id'] = sanitize_title($data['name']);
         }
 
+        // Check if source already exists
+        $exists = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT id FROM {$this->db->table('sources')} WHERE id = %s OR url = %s",
+                $data['id'],
+                $data['url']
+            )
+        );
+
+        if ($exists) {
+            return [
+                'success' => false,
+                'message' => 'Источник с таким ID или URL уже существует',
+            ];
+        }
+
         // Test the source first
         $test = $this->test_source($data['url']);
         if (!$test['success']) {
@@ -610,19 +655,37 @@ class AINCC_RSS_Parser {
         // Insert into database
         $result = $wpdb->insert(
             $this->db->table('sources'),
-            $data
+            [
+                'id' => $data['id'],
+                'name' => sanitize_text_field($data['name']),
+                'method' => $data['method'],
+                'url' => esc_url_raw($data['url']),
+                'lang' => sanitize_text_field($data['lang']),
+                'geo' => sanitize_text_field($data['geo']),
+                'category' => sanitize_text_field($data['category']),
+                'trust_score' => floatval($data['trust_score']),
+                'fetch_interval' => intval($data['fetch_interval']),
+                'enabled' => intval($data['enabled']),
+            ]
         );
 
         if ($result === false) {
+            AINCC_Logger::error('Failed to insert source', [
+                'data' => $data,
+                'db_error' => $wpdb->last_error,
+            ]);
             return [
                 'success' => false,
-                'message' => 'Failed to insert source',
+                'message' => 'Ошибка сохранения в базу данных: ' . $wpdb->last_error,
             ];
         }
+
+        AINCC_Logger::info('Source added', ['id' => $data['id'], 'name' => $data['name']]);
 
         return [
             'success' => true,
             'id' => $data['id'],
+            'message' => 'Источник успешно добавлен',
         ];
     }
 
@@ -657,6 +720,7 @@ class AINCC_RSS_Parser {
      * Get all sources
      */
     public function get_all_sources() {
-        return $this->db->get_active_sources();
+        // Return ALL sources (not just active) for admin management
+        return $this->db->get_all_sources();
     }
 }
