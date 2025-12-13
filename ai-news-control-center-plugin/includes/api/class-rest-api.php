@@ -65,6 +65,36 @@ class AINCC_REST_API {
         if (!class_exists('AINCC_Scheduler')) {
             require_once $plugin_dir . 'includes/class-scheduler.php';
         }
+
+        // Auto-initialize database if needed
+        $this->ensure_database_initialized();
+    }
+
+    /**
+     * Ensure database tables exist and have sources
+     */
+    private function ensure_database_initialized() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'aincc_sources';
+
+        // Check if table exists
+        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'");
+
+        if (!$table_exists) {
+            // Tables don't exist - create them
+            $db = new AINCC_Database();
+            $db->create_tables();
+            AINCC_Logger::info('Database auto-initialized via REST API');
+        } else {
+            // Table exists but check if sources are empty
+            $source_count = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}");
+            if ($source_count == 0) {
+                // Load default sources
+                $db = new AINCC_Database();
+                $db->load_default_sources();
+                AINCC_Logger::info('Default sources loaded via REST API');
+            }
+        }
     }
 
     /**
