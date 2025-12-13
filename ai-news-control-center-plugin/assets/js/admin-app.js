@@ -674,17 +674,19 @@
                         h('th', null, 'Действия')
                     )),
                     h('tbody', null, sources.map(s =>
-                        h('tr', { key: s.id, style: { opacity: s.enabled ? 1 : 0.5 } },
-                            h('td', null, h('span', { style: { color: s.enabled ? '#22c55e' : '#ef4444' } }, s.enabled ? '●' : '○')),
+                        h('tr', { key: s.id, style: { opacity: s.enabled ? 1 : 0.6 } },
+                            h('td', null,
+                                h('label', { className: 'aincc-toggle', title: s.enabled ? 'Выключить источник' : 'Включить источник' },
+                                    h('input', { type: 'checkbox', checked: !!s.enabled, onChange: () => handleToggle(s) }),
+                                    h('span', { className: 'aincc-toggle-slider' })
+                                )
+                            ),
                             h('td', null, h('div', null, s.name), h('div', { style: { fontSize: 11, color: '#64748b', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' } }, s.url)),
                             h('td', null, s.category),
                             h('td', null, s.lang?.toUpperCase()),
                             h('td', null, `${(s.trust_score * 100).toFixed(0)}%`),
                             h('td', null,
-                                h('div', { style: { display: 'flex', gap: 4 } },
-                                    h('button', { className: 'aincc-btn aincc-btn-icon', title: s.enabled ? 'Выключить' : 'Включить', onClick: () => handleToggle(s) }, s.enabled ? Icons.x : Icons.check),
-                                    h('button', { className: 'aincc-btn aincc-btn-icon aincc-btn-danger', title: 'Удалить', onClick: () => handleDelete(s) }, Icons.trash)
-                                )
+                                h('button', { className: 'aincc-btn aincc-btn-icon aincc-btn-danger', title: 'Удалить', onClick: () => handleDelete(s) }, Icons.trash)
                             )
                         )
                     ))

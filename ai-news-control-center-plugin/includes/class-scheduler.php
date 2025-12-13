@@ -140,20 +140,20 @@ class AINCC_Scheduler {
                     $fetched += count($articles);
 
                     // Update last fetch time
-                    $db->update_source_fetch_time($source->id);
+                    $db->update_source_fetch_time($source['id']);
 
                     AINCC_Logger::debug("Fetched from source", [
-                        'source' => $source->name,
+                        'source' => $source['name'],
                         'articles' => count($articles)
                     ]);
 
                 } catch (Throwable $e) {
                     $result['errors'][] = [
-                        'source' => $source->name,
+                        'source' => $source['name'] ?? 'unknown',
                         'error' => $e->getMessage()
                     ];
                     AINCC_Logger::error("Failed to fetch source", [
-                        'source' => $source->name,
+                        'source' => $source['name'] ?? 'unknown',
                         'error' => $e->getMessage()
                     ]);
                 }
