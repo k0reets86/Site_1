@@ -260,9 +260,10 @@ final class AI_News_Control_Center {
                 @set_time_limit(300);
             }
 
-            $scheduler = $this->get_component('scheduler');
-            if ($scheduler) {
-                $scheduler->fetch_sources();
+            // Directly use RSS parser for reliable fetching
+            $rss_parser = $this->get_component('rss_parser');
+            if ($rss_parser) {
+                $rss_parser->fetch_all_sources();
             }
         } catch (Throwable $e) {
             $this->log_error('Cron fetch failed', $e);
@@ -278,9 +279,10 @@ final class AI_News_Control_Center {
                 @set_time_limit(300);
             }
 
-            $scheduler = $this->get_component('scheduler');
-            if ($scheduler) {
-                $scheduler->process_queue();
+            // Directly use content processor for reliable processing
+            $processor = $this->get_component('content_processor');
+            if ($processor) {
+                $processor->process_queue();
             }
         } catch (Throwable $e) {
             $this->log_error('Cron process failed', $e);

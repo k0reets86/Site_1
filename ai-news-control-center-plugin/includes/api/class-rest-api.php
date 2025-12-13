@@ -19,7 +19,52 @@ class AINCC_REST_API {
      * Constructor - routes are registered via init_rest_api in main plugin
      */
     public function __construct() {
-        // Routes registered externally via register_routes()
+        // Ensure all required classes are loaded
+        $this->load_dependencies();
+    }
+
+    /**
+     * Load required dependencies for API operations
+     */
+    private function load_dependencies() {
+        $plugin_dir = AINCC_PLUGIN_DIR;
+
+        // Load AI providers
+        if (!interface_exists('AINCC_AI_Provider_Interface')) {
+            require_once $plugin_dir . 'includes/ai-providers/interface-ai-provider.php';
+        }
+        if (!class_exists('AINCC_AI_Provider_Factory')) {
+            require_once $plugin_dir . 'includes/ai-providers/class-ai-provider-factory.php';
+        }
+        if (!class_exists('AINCC_DeepSeek_Provider')) {
+            require_once $plugin_dir . 'includes/ai-providers/class-deepseek-provider.php';
+        }
+        if (!class_exists('AINCC_OpenAI_Provider')) {
+            require_once $plugin_dir . 'includes/ai-providers/class-openai-provider.php';
+        }
+        if (!class_exists('AINCC_Anthropic_Provider')) {
+            require_once $plugin_dir . 'includes/ai-providers/class-anthropic-provider.php';
+        }
+
+        // Load other required classes
+        if (!class_exists('AINCC_RSS_Parser')) {
+            require_once $plugin_dir . 'includes/class-rss-parser.php';
+        }
+        if (!class_exists('AINCC_Content_Processor')) {
+            require_once $plugin_dir . 'includes/class-content-processor.php';
+        }
+        if (!class_exists('AINCC_Image_Handler')) {
+            require_once $plugin_dir . 'includes/class-image-handler.php';
+        }
+        if (!class_exists('AINCC_Publisher')) {
+            require_once $plugin_dir . 'includes/class-publisher.php';
+        }
+        if (!class_exists('AINCC_Telegram')) {
+            require_once $plugin_dir . 'includes/class-telegram.php';
+        }
+        if (!class_exists('AINCC_Scheduler')) {
+            require_once $plugin_dir . 'includes/class-scheduler.php';
+        }
     }
 
     /**
@@ -117,6 +162,26 @@ class AINCC_REST_API {
             'methods' => 'POST',
             'callback' => [$this, 'create_article'],
             'permission_callback' => [$this, 'check_permission'],
+        ]);
+
+        // Create article from URL
+        register_rest_route(self::NAMESPACE, '/articles/from-url', [
+            'methods' => 'POST',
+            'callback' => [$this, 'create_article_from_url'],
+            'permission_callback' => [$this, 'check_permission'],
+            'args' => [
+                'url' => ['type' => 'string', 'required' => true],
+                'source_lang' => ['type' => 'string', 'default' => 'de'],
+                'target_langs' => ['type' => 'array', 'default' => ['de', 'ua', 'ru', 'en']],
+                'category' => ['type' => 'string', 'default' => 'nachrichten'],
+            ],
+        ]);
+
+        // Manual fetch trigger
+        register_rest_route(self::NAMESPACE, '/fetch/now', [
+            'methods' => 'POST',
+            'callback' => [$this, 'trigger_fetch'],
+            'permission_callback' => [$this, 'check_admin_permission'],
         ]);
 
         // Sources
@@ -237,6 +302,13 @@ class AINCC_REST_API {
         register_rest_route(self::NAMESPACE, '/test/pexels', [
             'methods' => 'POST',
             'callback' => [$this, 'test_pexels_connection'],
+            'permission_callback' => [$this, 'check_admin_permission'],
+        ]);
+
+        // System reinitialize
+        register_rest_route(self::NAMESPACE, '/system/reinitialize', [
+            'methods' => 'POST',
+            'callback' => [$this, 'reinitialize_plugin'],
             'permission_callback' => [$this, 'check_admin_permission'],
         ]);
 
@@ -454,9 +526,77 @@ class AINCC_REST_API {
         $processor = new AINCC_Content_Processor();
         $data = $request->get_json_params();
 
-        $result = $processor->process_manual_article($data);
+        // Validate required fields
+        if (empty($data['title']) || empty($data['body'])) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Заголовок и текст обязательны',
+            ], 400);
+        }
 
-        return new WP_REST_Response($result, $result['success'] ? 201 : 400);
+        try {
+            $result = $processor->process_manual_article($data);
+            return new WP_REST_Response($result, $result['success'] ? 201 : 400);
+        } catch (Exception $e) {
+            AINCC_Logger::error('Article creation failed', ['error' => $e->getMessage()]);
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Ошибка создания: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Create article from URL
+     */
+    public function create_article_from_url($request) {
+        $url = $request->get_param('url');
+        $source_lang = $request->get_param('source_lang') ?: 'de';
+        $target_langs = $request->get_param('target_langs') ?: ['de', 'ua', 'ru', 'en'];
+        $category = $request->get_param('category') ?: 'nachrichten';
+
+        if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Некорректный URL',
+            ], 400);
+        }
+
+        try {
+            $processor = new AINCC_Content_Processor();
+            $result = $processor->process_article_from_url($url, $source_lang, $target_langs, $category);
+
+            return new WP_REST_Response($result, $result['success'] ? 201 : 400);
+        } catch (Exception $e) {
+            AINCC_Logger::error('URL article creation failed', [
+                'url' => $url,
+                'error' => $e->getMessage(),
+            ]);
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Ошибка обработки URL: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Trigger manual fetch
+     */
+    public function trigger_fetch($request) {
+        try {
+            $parser = new AINCC_RSS_Parser();
+            $parser->fetch_all_sources();
+
+            return new WP_REST_Response([
+                'success' => true,
+                'message' => 'Сбор новостей запущен',
+            ], 200);
+        } catch (Exception $e) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Ошибка: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
@@ -743,40 +883,128 @@ class AINCC_REST_API {
      * Test AI connection
      */
     public function test_ai_connection($request) {
-        $ai = AINCC_AI_Provider_Factory::create();
-        $result = $ai->test_connection();
+        try {
+            $provider = AINCC_Settings::get('ai_provider', 'deepseek');
+            $api_key = AINCC_Settings::get($provider . '_api_key');
 
-        return new WP_REST_Response($result, $result['success'] ? 200 : 400);
+            if (empty($api_key)) {
+                return new WP_REST_Response([
+                    'success' => false,
+                    'message' => "API ключ для {$provider} не указан. Введите ключ в настройках.",
+                ], 400);
+            }
+
+            $ai = AINCC_AI_Provider_Factory::create();
+            $result = $ai->test_connection();
+
+            return new WP_REST_Response($result, $result['success'] ? 200 : 400);
+        } catch (Exception $e) {
+            AINCC_Logger::error('AI connection test failed', ['error' => $e->getMessage()]);
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Ошибка: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
      * Test Telegram connection
      */
     public function test_telegram_connection($request) {
-        $telegram = new AINCC_Telegram();
-        $result = $telegram->test_connection();
+        try {
+            $bot_token = AINCC_Settings::get('telegram_bot_token');
 
-        return new WP_REST_Response($result, $result['success'] ? 200 : 400);
+            if (empty($bot_token)) {
+                return new WP_REST_Response([
+                    'success' => false,
+                    'message' => 'Telegram Bot Token не указан. Введите токен в настройках.',
+                ], 400);
+            }
+
+            $telegram = new AINCC_Telegram();
+            $result = $telegram->test_connection();
+
+            return new WP_REST_Response($result, $result['success'] ? 200 : 400);
+        } catch (Exception $e) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Ошибка: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
      * Test Pexels connection
      */
     public function test_pexels_connection($request) {
-        $image_handler = new AINCC_Image_Handler();
-        $result = $image_handler->search_pexels('test');
+        try {
+            $api_key = AINCC_Settings::get('pexels_api_key');
 
-        if ($result) {
+            if (empty($api_key)) {
+                return new WP_REST_Response([
+                    'success' => false,
+                    'message' => 'Pexels API ключ не указан. Введите ключ в настройках.',
+                ], 400);
+            }
+
+            $image_handler = new AINCC_Image_Handler();
+            $result = $image_handler->search_pexels('nature');
+
+            if ($result) {
+                return new WP_REST_Response([
+                    'success' => true,
+                    'message' => 'Pexels API подключен успешно!',
+                    'sample_image' => $result['url'] ?? null,
+                ], 200);
+            }
+
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Не удалось подключиться к Pexels. Проверьте API ключ.',
+            ], 400);
+        } catch (Exception $e) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Ошибка: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Reinitialize plugin (create tables, load sources)
+     */
+    public function reinitialize_plugin($request) {
+        try {
+            // Create database tables
+            $db = new AINCC_Database();
+            $db->create_tables();
+
+            // Schedule cron jobs
+            if (!wp_next_scheduled('aincc_fetch_sources')) {
+                wp_schedule_event(time() + 60, 'every_5_minutes', 'aincc_fetch_sources');
+            }
+            if (!wp_next_scheduled('aincc_process_queue')) {
+                wp_schedule_event(time() + 120, 'every_2_minutes', 'aincc_process_queue');
+            }
+
+            // Get source count
+            global $wpdb;
+            $source_count = $wpdb->get_var("SELECT COUNT(*) FROM {$db->table('sources')}");
+
+            AINCC_Logger::info('Plugin reinitialized', ['sources' => $source_count]);
+
             return new WP_REST_Response([
                 'success' => true,
-                'message' => 'Pexels API connected',
+                'message' => "Плагин переинициализирован. Загружено источников: {$source_count}",
+                'sources_count' => (int) $source_count,
             ], 200);
+        } catch (Exception $e) {
+            AINCC_Logger::error('Reinitialize failed', ['error' => $e->getMessage()]);
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Ошибка: ' . $e->getMessage(),
+            ], 500);
         }
-
-        return new WP_REST_Response([
-            'success' => false,
-            'message' => 'Failed to connect to Pexels',
-        ], 400);
     }
 
     /**
