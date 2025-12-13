@@ -232,16 +232,38 @@
         );
     };
 
-    // Модалка просмотра
+    // Модалка просмотра и редактирования
     const PreviewModal = ({ draft, onClose, onAction, onReload }) => {
         const [loading, setLoading] = useState(false);
+        const [editing, setEditing] = useState(false);
+        const [editData, setEditData] = useState({
+            title: draft?.title || '',
+            lead: draft?.lead || '',
+            body_html: draft?.body_html || '',
+            seo_title: draft?.seo_title || '',
+            meta_description: draft?.meta_description || '',
+            category: draft?.category || '',
+        });
+
+        useEffect(() => {
+            if (draft) {
+                setEditData({
+                    title: draft.title || '',
+                    lead: draft.lead || '',
+                    body_html: draft.body_html || '',
+                    seo_title: draft.seo_title || '',
+                    meta_description: draft.meta_description || '',
+                    category: draft.category || '',
+                });
+            }
+        }, [draft]);
 
         if (!draft) return null;
 
         const handlePublish = async () => {
             setLoading(true);
             try {
-                await api.post(`/drafts/${draft.id}/publish`, { channels: ['wordpress', 'telegram'] });
+                await api.post(`/drafts/${draft.id}/publish`, { channels: ['wordpress'] });
                 toasts.success('Статья опубликована!');
                 onClose();
                 onReload && onReload();
@@ -251,30 +273,126 @@
             setLoading(false);
         };
 
+        const handleSave = async () => {
+            setLoading(true);
+            try {
+                await api.put(`/drafts/${draft.id}`, editData);
+                toasts.success('Изменения сохранены!');
+                setEditing(false);
+                onReload && onReload();
+            } catch (error) {
+                toasts.error('Ошибка сохранения: ' + error.message);
+            }
+            setLoading(false);
+        };
+
+        const categories = [
+            { value: 'politik', label: 'Политика' },
+            { value: 'wirtschaft', label: 'Экономика' },
+            { value: 'gesellschaft', label: 'Общество' },
+            { value: 'migration', label: 'Миграция' },
+            { value: 'lokales', label: 'Местные новости' },
+            { value: 'kultur', label: 'Культура' },
+            { value: 'verkehr', label: 'Транспорт' },
+            { value: 'sport', label: 'Спорт' },
+            { value: 'wetter', label: 'Погода' },
+            { value: 'nachrichten', label: 'Новости' },
+        ];
+
         return h('div', { className: 'aincc-modal-overlay', onClick: (e) => e.target === e.currentTarget && onClose() },
-            h('div', { className: 'aincc-modal', style: { maxWidth: 900 } },
+            h('div', { className: 'aincc-modal', style: { maxWidth: 1000 } },
                 h('div', { className: 'aincc-modal-header' },
-                    h('h2', null, 'Просмотр статьи'),
-                    h('button', { className: 'aincc-modal-close', onClick: onClose }, '✕')
+                    h('h2', null, editing ? 'Редактирование статьи' : 'Просмотр статьи'),
+                    h('div', { style: { display: 'flex', alignItems: 'center', gap: 12 } },
+                        h('span', { style: { color: '#64748b', fontSize: 13 } }, 'Язык: ', draft.lang?.toUpperCase()),
+                        h('button', { className: 'aincc-modal-close', onClick: onClose }, '✕')
+                    )
                 ),
-                h('div', { className: 'aincc-modal-body' },
-                    h('div', { className: 'aincc-preview' },
-                        draft.image_url && h('img', { className: 'aincc-preview-image', src: draft.image_url, alt: draft.title }),
-                        h('h1', { className: 'aincc-preview-title' }, draft.title),
-                        draft.lead && h('p', { className: 'aincc-preview-lead' }, draft.lead),
-                        h('div', { className: 'aincc-preview-content', dangerouslySetInnerHTML: { __html: draft.body_html || '' } })
-                    ),
-                    h('div', { style: { marginTop: 20, padding: 16, background: '#1e293b', borderRadius: 8 } },
-                        h('div', { style: { marginBottom: 8 } }, h('strong', { style: { color: '#94a3b8' } }, 'SEO Title: '), h('span', { style: { color: '#e2e8f0' } }, draft.seo_title || '-')),
-                        h('div', { style: { marginBottom: 8 } }, h('strong', { style: { color: '#94a3b8' } }, 'Description: '), h('span', { style: { color: '#e2e8f0' } }, draft.meta_description || '-')),
-                        h('div', null, h('strong', { style: { color: '#94a3b8' } }, 'Категория: '), h('span', { style: { color: '#e2e8f0' } }, draft.category || '-'))
+                h('div', { className: 'aincc-modal-body', style: { maxHeight: '70vh', overflow: 'auto' } },
+                    editing ? (
+                        // Режим редактирования
+                        h('div', { style: { display: 'flex', flexDirection: 'column', gap: 16 } },
+                            h('div', { className: 'aincc-form-group' },
+                                h('label', { className: 'aincc-label' }, 'Заголовок'),
+                                h('input', {
+                                    className: 'aincc-input', value: editData.title,
+                                    onChange: (e) => setEditData({ ...editData, title: e.target.value }),
+                                })
+                            ),
+                            h('div', { className: 'aincc-form-group' },
+                                h('label', { className: 'aincc-label' }, 'Лид'),
+                                h('textarea', {
+                                    className: 'aincc-textarea', rows: 3, value: editData.lead,
+                                    onChange: (e) => setEditData({ ...editData, lead: e.target.value }),
+                                })
+                            ),
+                            h('div', { className: 'aincc-form-group' },
+                                h('label', { className: 'aincc-label' }, 'Текст статьи (HTML)'),
+                                h('textarea', {
+                                    className: 'aincc-textarea', rows: 12, value: editData.body_html,
+                                    onChange: (e) => setEditData({ ...editData, body_html: e.target.value }),
+                                })
+                            ),
+                            h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 } },
+                                h('div', { className: 'aincc-form-group' },
+                                    h('label', { className: 'aincc-label' }, 'SEO Заголовок'),
+                                    h('input', {
+                                        className: 'aincc-input', value: editData.seo_title,
+                                        onChange: (e) => setEditData({ ...editData, seo_title: e.target.value }),
+                                    })
+                                ),
+                                h('div', { className: 'aincc-form-group' },
+                                    h('label', { className: 'aincc-label' }, 'Категория'),
+                                    h('select', {
+                                        className: 'aincc-select', value: editData.category,
+                                        onChange: (e) => setEditData({ ...editData, category: e.target.value }),
+                                    },
+                                        categories.map(c => h('option', { key: c.value, value: c.value }, c.label))
+                                    )
+                                )
+                            ),
+                            h('div', { className: 'aincc-form-group' },
+                                h('label', { className: 'aincc-label' }, 'Meta Description'),
+                                h('textarea', {
+                                    className: 'aincc-textarea', rows: 2, value: editData.meta_description,
+                                    onChange: (e) => setEditData({ ...editData, meta_description: e.target.value }),
+                                })
+                            )
+                        )
+                    ) : (
+                        // Режим просмотра
+                        h('div', null,
+                            h('div', { className: 'aincc-preview' },
+                                draft.image_url && h('img', { className: 'aincc-preview-image', src: draft.image_url, alt: draft.title }),
+                                h('h1', { className: 'aincc-preview-title' }, draft.title),
+                                draft.lead && h('p', { className: 'aincc-preview-lead' }, draft.lead),
+                                h('div', { className: 'aincc-preview-content', dangerouslySetInnerHTML: { __html: draft.body_html || '' } })
+                            ),
+                            h('div', { style: { marginTop: 20, padding: 16, background: '#1e293b', borderRadius: 8 } },
+                                h('div', { style: { marginBottom: 8 } }, h('strong', { style: { color: '#94a3b8' } }, 'SEO Title: '), h('span', { style: { color: '#e2e8f0' } }, draft.seo_title || '-')),
+                                h('div', { style: { marginBottom: 8 } }, h('strong', { style: { color: '#94a3b8' } }, 'Description: '), h('span', { style: { color: '#e2e8f0' } }, draft.meta_description || '-')),
+                                h('div', { style: { marginBottom: 8 } }, h('strong', { style: { color: '#94a3b8' } }, 'Категория: '), h('span', { style: { color: '#e2e8f0' } }, draft.category || '-')),
+                                h('div', null, h('strong', { style: { color: '#94a3b8' } }, 'Slug: '), h('span', { style: { color: '#e2e8f0' } }, draft.slug || '-'))
+                            )
+                        )
                     )
                 ),
                 h('div', { className: 'aincc-modal-footer' },
-                    h('button', { className: 'aincc-btn aincc-btn-secondary', onClick: onClose }, 'Закрыть'),
-                    draft.status !== 'published' && h('button', {
-                        className: 'aincc-btn aincc-btn-primary', onClick: handlePublish, disabled: loading,
-                    }, loading ? 'Публикация...' : 'Опубликовать сейчас')
+                    editing ? (
+                        h(React.Fragment, null,
+                            h('button', { className: 'aincc-btn aincc-btn-secondary', onClick: () => setEditing(false) }, 'Отмена'),
+                            h('button', { className: 'aincc-btn aincc-btn-primary', onClick: handleSave, disabled: loading },
+                                loading ? 'Сохранение...' : 'Сохранить изменения')
+                        )
+                    ) : (
+                        h(React.Fragment, null,
+                            h('button', { className: 'aincc-btn aincc-btn-secondary', onClick: onClose }, 'Закрыть'),
+                            draft.status !== 'published' && h('button', { className: 'aincc-btn aincc-btn-secondary', onClick: () => setEditing(true), style: { marginLeft: 8 } }, '✏️ Редактировать'),
+                            draft.status !== 'published' && h('button', {
+                                className: 'aincc-btn aincc-btn-primary', onClick: handlePublish, disabled: loading, style: { marginLeft: 8 }
+                            }, loading ? 'Публикация...' : 'Опубликовать')
+                        )
+                    )
                 )
             )
         );
@@ -599,11 +717,11 @@
 
         const handleToggle = async (source) => {
             try {
-                await api.put(`/sources/${source.id}`, { enabled: source.enabled ? 0 : 1 });
+                const result = await api.post(`/sources/${source.id}/toggle`, {});
                 loadSources();
-                toasts.success(source.enabled ? 'Отключено' : 'Включено');
+                toasts.success(result.message || (source.enabled ? 'Отключено' : 'Включено'));
             } catch (e) {
-                toasts.error('Ошибка');
+                toasts.error('Ошибка: ' + e.message);
             }
         };
 
