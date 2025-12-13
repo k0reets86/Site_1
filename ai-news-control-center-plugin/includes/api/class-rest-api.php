@@ -119,6 +119,26 @@ class AINCC_REST_API {
             'permission_callback' => [$this, 'check_permission'],
         ]);
 
+        // Create article from URL
+        register_rest_route(self::NAMESPACE, '/articles/from-url', [
+            'methods' => 'POST',
+            'callback' => [$this, 'create_article_from_url'],
+            'permission_callback' => [$this, 'check_permission'],
+            'args' => [
+                'url' => ['type' => 'string', 'required' => true],
+                'source_lang' => ['type' => 'string', 'default' => 'de'],
+                'target_langs' => ['type' => 'array', 'default' => ['de', 'ua', 'ru', 'en']],
+                'category' => ['type' => 'string', 'default' => 'nachrichten'],
+            ],
+        ]);
+
+        // Manual fetch trigger
+        register_rest_route(self::NAMESPACE, '/fetch/now', [
+            'methods' => 'POST',
+            'callback' => [$this, 'trigger_fetch'],
+            'permission_callback' => [$this, 'check_admin_permission'],
+        ]);
+
         // Sources
         register_rest_route(self::NAMESPACE, '/sources', [
             [
@@ -454,9 +474,77 @@ class AINCC_REST_API {
         $processor = new AINCC_Content_Processor();
         $data = $request->get_json_params();
 
-        $result = $processor->process_manual_article($data);
+        // Validate required fields
+        if (empty($data['title']) || empty($data['body'])) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Заголовок и текст обязательны',
+            ], 400);
+        }
 
-        return new WP_REST_Response($result, $result['success'] ? 201 : 400);
+        try {
+            $result = $processor->process_manual_article($data);
+            return new WP_REST_Response($result, $result['success'] ? 201 : 400);
+        } catch (Exception $e) {
+            AINCC_Logger::error('Article creation failed', ['error' => $e->getMessage()]);
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Ошибка создания: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Create article from URL
+     */
+    public function create_article_from_url($request) {
+        $url = $request->get_param('url');
+        $source_lang = $request->get_param('source_lang') ?: 'de';
+        $target_langs = $request->get_param('target_langs') ?: ['de', 'ua', 'ru', 'en'];
+        $category = $request->get_param('category') ?: 'nachrichten';
+
+        if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Некорректный URL',
+            ], 400);
+        }
+
+        try {
+            $processor = new AINCC_Content_Processor();
+            $result = $processor->process_article_from_url($url, $source_lang, $target_langs, $category);
+
+            return new WP_REST_Response($result, $result['success'] ? 201 : 400);
+        } catch (Exception $e) {
+            AINCC_Logger::error('URL article creation failed', [
+                'url' => $url,
+                'error' => $e->getMessage(),
+            ]);
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Ошибка обработки URL: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Trigger manual fetch
+     */
+    public function trigger_fetch($request) {
+        try {
+            $parser = new AINCC_RSS_Parser();
+            $parser->fetch_all_sources();
+
+            return new WP_REST_Response([
+                'success' => true,
+                'message' => 'Сбор новостей запущен',
+            ], 200);
+        } catch (Exception $e) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Ошибка: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**

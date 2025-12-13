@@ -1,7 +1,7 @@
 <?php
 /**
  * Admin Class
- * Handles WordPress admin interface for the plugin
+ * Управление административным интерфейсом плагина
  */
 
 if (!defined('ABSPATH')) {
@@ -26,13 +26,13 @@ class AINCC_Admin {
     }
 
     /**
-     * Add admin menu
+     * Add admin menu (Russian)
      */
     public function add_admin_menu() {
         // Main menu
         add_menu_page(
-            __('AI News Center', 'ai-news-center'),
-            __('AI News Center', 'ai-news-center'),
+            'AI Новости',
+            'AI Новости',
             'edit_posts',
             'ai-news-center',
             [$this, 'render_main_page'],
@@ -43,8 +43,8 @@ class AINCC_Admin {
         // Submenus
         add_submenu_page(
             'ai-news-center',
-            __('Dashboard', 'ai-news-center'),
-            __('Dashboard', 'ai-news-center'),
+            'Панель управления',
+            'Панель управления',
             'edit_posts',
             'ai-news-center',
             [$this, 'render_main_page']
@@ -52,8 +52,8 @@ class AINCC_Admin {
 
         add_submenu_page(
             'ai-news-center',
-            __('Create Article', 'ai-news-center'),
-            __('Create Article', 'ai-news-center'),
+            'Создать статью',
+            'Создать статью',
             'edit_posts',
             'ai-news-center-create',
             [$this, 'render_main_page']
@@ -61,17 +61,17 @@ class AINCC_Admin {
 
         add_submenu_page(
             'ai-news-center',
-            __('Analytics', 'ai-news-center'),
-            __('Analytics', 'ai-news-center'),
+            'Из ссылки',
+            'Из ссылки',
             'edit_posts',
-            'ai-news-center-analytics',
+            'ai-news-center-from-url',
             [$this, 'render_main_page']
         );
 
         add_submenu_page(
             'ai-news-center',
-            __('Sources', 'ai-news-center'),
-            __('Sources', 'ai-news-center'),
+            'Источники RSS',
+            'Источники RSS',
             'manage_options',
             'ai-news-center-sources',
             [$this, 'render_main_page']
@@ -79,8 +79,17 @@ class AINCC_Admin {
 
         add_submenu_page(
             'ai-news-center',
-            __('Settings', 'ai-news-center'),
-            __('Settings', 'ai-news-center'),
+            'Аналитика',
+            'Аналитика',
+            'edit_posts',
+            'ai-news-center-analytics',
+            [$this, 'render_main_page']
+        );
+
+        add_submenu_page(
+            'ai-news-center',
+            'Настройки',
+            'Настройки',
             'manage_options',
             'ai-news-center-settings',
             [$this, 'render_settings_page']
@@ -100,10 +109,12 @@ class AINCC_Admin {
         $current_page = 'dashboard';
         if (strpos($hook, '-create') !== false) {
             $current_page = 'create';
+        } elseif (strpos($hook, '-from-url') !== false) {
+            $current_page = 'from-url';
         } elseif (strpos($hook, '-analytics') !== false) {
             $current_page = 'analytics';
         } elseif (strpos($hook, '-sources') !== false) {
-            $current_page = 'settings';
+            $current_page = 'sources';
         } elseif (strpos($hook, '-settings') !== false) {
             $current_page = 'settings';
         }
@@ -159,7 +170,7 @@ class AINCC_Admin {
             true
         );
 
-        // Pass data to JS
+        // Pass data to JS (Russian)
         wp_localize_script('aincc-admin-app', 'ainccData', [
             'apiUrl' => rest_url('aincc/v1'),
             'nonce' => wp_create_nonce('wp_rest'),
@@ -179,22 +190,23 @@ class AINCC_Admin {
                 'autoPublishEnabled' => AINCC_Settings::get('auto_publish_enabled'),
             ],
             'i18n' => [
-                'dashboard' => __('Dashboard', 'ai-news-center'),
-                'create' => __('Create Article', 'ai-news-center'),
-                'analytics' => __('Analytics', 'ai-news-center'),
-                'settings' => __('Settings', 'ai-news-center'),
-                'sources' => __('Sources', 'ai-news-center'),
-                'moderation' => __('Moderation', 'ai-news-center'),
-                'calendar' => __('Calendar', 'ai-news-center'),
-                'approve' => __('Approve', 'ai-news-center'),
-                'reject' => __('Reject', 'ai-news-center'),
-                'publish' => __('Publish', 'ai-news-center'),
-                'schedule' => __('Schedule', 'ai-news-center'),
-                'edit' => __('Edit', 'ai-news-center'),
-                'delete' => __('Delete', 'ai-news-center'),
-                'save' => __('Save', 'ai-news-center'),
-                'cancel' => __('Cancel', 'ai-news-center'),
-                'loading' => __('Loading...', 'ai-news-center'),
+                'dashboard' => 'Панель',
+                'create' => 'Создать статью',
+                'fromUrl' => 'Из ссылки',
+                'analytics' => 'Аналитика',
+                'settings' => 'Настройки',
+                'sources' => 'Источники',
+                'moderation' => 'Модерация',
+                'calendar' => 'Календарь',
+                'approve' => 'Одобрить',
+                'reject' => 'Отклонить',
+                'publish' => 'Опубликовать',
+                'schedule' => 'Запланировать',
+                'edit' => 'Редактировать',
+                'delete' => 'Удалить',
+                'save' => 'Сохранить',
+                'cancel' => 'Отмена',
+                'loading' => 'Загрузка...',
             ],
         ]);
     }
@@ -239,7 +251,7 @@ class AINCC_Admin {
     }
 
     /**
-     * Render settings page (classic WP settings)
+     * Render settings page (classic WP settings) - Russian
      */
     public function render_settings_page() {
         if (!current_user_can('manage_options')) {
@@ -249,173 +261,223 @@ class AINCC_Admin {
         // Save settings if form submitted
         if (isset($_POST['aincc_save_settings']) && check_admin_referer('aincc_settings_nonce')) {
             $this->save_settings();
-            echo '<div class="notice notice-success"><p>' . __('Settings saved.', 'ai-news-center') . '</p></div>';
+            echo '<div class="notice notice-success"><p>Настройки сохранены.</p></div>';
         }
 
         ?>
         <div class="wrap">
-            <h1><?php _e('AI News Control Center Settings', 'ai-news-center'); ?></h1>
+            <h1>AI Новости - Настройки</h1>
 
             <form method="post" action="">
                 <?php wp_nonce_field('aincc_settings_nonce'); ?>
 
-                <h2 class="title"><?php _e('AI Provider', 'ai-news-center'); ?></h2>
+                <h2 class="title">AI Провайдер</h2>
                 <table class="form-table">
                     <tr>
-                        <th scope="row"><?php _e('Provider', 'ai-news-center'); ?></th>
+                        <th scope="row">Провайдер</th>
                         <td>
                             <select name="ai_provider">
-                                <option value="deepseek" <?php selected(AINCC_Settings::get('ai_provider'), 'deepseek'); ?>>DeepSeek</option>
-                                <option value="openai" <?php selected(AINCC_Settings::get('ai_provider'), 'openai'); ?>>OpenAI</option>
+                                <option value="deepseek" <?php selected(AINCC_Settings::get('ai_provider'), 'deepseek'); ?>>DeepSeek (рекомендуется)</option>
+                                <option value="openai" <?php selected(AINCC_Settings::get('ai_provider'), 'openai'); ?>>OpenAI GPT</option>
                                 <option value="anthropic" <?php selected(AINCC_Settings::get('ai_provider'), 'anthropic'); ?>>Anthropic Claude</option>
                             </select>
+                            <p class="description">DeepSeek - самый дешёвый (~$0.001 за статью)</p>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php _e('DeepSeek API Key', 'ai-news-center'); ?></th>
+                        <th scope="row">DeepSeek API Key</th>
                         <td>
                             <input type="password" name="deepseek_api_key" value="<?php echo esc_attr(AINCC_Settings::get('deepseek_api_key')); ?>" class="regular-text">
+                            <p class="description">Получить на <a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a></p>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php _e('DeepSeek Model', 'ai-news-center'); ?></th>
+                        <th scope="row">DeepSeek Модель</th>
                         <td>
                             <select name="deepseek_model">
-                                <option value="deepseek-chat" <?php selected(AINCC_Settings::get('deepseek_model'), 'deepseek-chat'); ?>>DeepSeek Chat (Fast)</option>
-                                <option value="deepseek-reasoner" <?php selected(AINCC_Settings::get('deepseek_model'), 'deepseek-reasoner'); ?>>DeepSeek Reasoner (Smart)</option>
+                                <option value="deepseek-chat" <?php selected(AINCC_Settings::get('deepseek_model'), 'deepseek-chat'); ?>>DeepSeek Chat (быстрая)</option>
+                                <option value="deepseek-reasoner" <?php selected(AINCC_Settings::get('deepseek_model'), 'deepseek-reasoner'); ?>>DeepSeek Reasoner (умная)</option>
                             </select>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php _e('OpenAI API Key', 'ai-news-center'); ?></th>
+                        <th scope="row">OpenAI API Key</th>
                         <td>
                             <input type="password" name="openai_api_key" value="<?php echo esc_attr(AINCC_Settings::get('openai_api_key')); ?>" class="regular-text">
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php _e('Anthropic API Key', 'ai-news-center'); ?></th>
+                        <th scope="row">Anthropic API Key</th>
                         <td>
                             <input type="password" name="anthropic_api_key" value="<?php echo esc_attr(AINCC_Settings::get('anthropic_api_key')); ?>" class="regular-text">
                         </td>
                     </tr>
                 </table>
 
-                <h2 class="title"><?php _e('Media', 'ai-news-center'); ?></h2>
+                <h2 class="title">Изображения</h2>
                 <table class="form-table">
                     <tr>
-                        <th scope="row"><?php _e('Pexels API Key', 'ai-news-center'); ?></th>
+                        <th scope="row">Pexels API Key</th>
                         <td>
                             <input type="password" name="pexels_api_key" value="<?php echo esc_attr(AINCC_Settings::get('pexels_api_key')); ?>" class="regular-text">
-                            <p class="description"><?php _e('Get free API key at pexels.com', 'ai-news-center'); ?></p>
+                            <p class="description">Бесплатный ключ на <a href="https://www.pexels.com/api/" target="_blank">pexels.com/api</a></p>
                         </td>
                     </tr>
                 </table>
 
-                <h2 class="title"><?php _e('Telegram', 'ai-news-center'); ?></h2>
+                <h2 class="title">Telegram</h2>
                 <table class="form-table">
                     <tr>
-                        <th scope="row"><?php _e('Enable Telegram', 'ai-news-center'); ?></th>
+                        <th scope="row">Включить Telegram</th>
                         <td>
                             <label>
                                 <input type="checkbox" name="telegram_enabled" value="1" <?php checked(AINCC_Settings::get('telegram_enabled')); ?>>
-                                <?php _e('Post articles to Telegram channel', 'ai-news-center'); ?>
+                                Публиковать статьи в Telegram канал
                             </label>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php _e('Bot Token', 'ai-news-center'); ?></th>
+                        <th scope="row">Bot Token</th>
                         <td>
                             <input type="password" name="telegram_bot_token" value="<?php echo esc_attr(AINCC_Settings::get('telegram_bot_token')); ?>" class="regular-text">
-                            <p class="description"><?php _e('Create bot via @BotFather', 'ai-news-center'); ?></p>
+                            <p class="description">Создать бота через @BotFather в Telegram</p>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php _e('Channel ID', 'ai-news-center'); ?></th>
+                        <th scope="row">Channel ID</th>
                         <td>
                             <input type="text" name="telegram_channel_id" value="<?php echo esc_attr(AINCC_Settings::get('telegram_channel_id')); ?>" class="regular-text">
-                            <p class="description"><?php _e('e.g., @yourchannel or -100XXXXXXXXXX', 'ai-news-center'); ?></p>
+                            <p class="description">Например: @yourchannel или -100XXXXXXXXXX</p>
                         </td>
                     </tr>
                 </table>
 
-                <h2 class="title"><?php _e('Automation', 'ai-news-center'); ?></h2>
+                <h2 class="title">Автоматизация</h2>
                 <table class="form-table">
                     <tr>
-                        <th scope="row"><?php _e('Auto-Publish', 'ai-news-center'); ?></th>
+                        <th scope="row">Авто-публикация</th>
                         <td>
                             <label>
                                 <input type="checkbox" name="auto_publish_enabled" value="1" <?php checked(AINCC_Settings::get('auto_publish_enabled')); ?>>
-                                <?php _e('Automatically publish approved content', 'ai-news-center'); ?>
+                                Автоматически публиковать одобренный контент
                             </label>
+                            <p class="description">На старте лучше отключить для ручной проверки</p>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php _e('Auto-Publish Delay', 'ai-news-center'); ?></th>
+                        <th scope="row">Задержка авто-публикации</th>
                         <td>
                             <input type="number" name="auto_publish_delay" value="<?php echo esc_attr(AINCC_Settings::get('auto_publish_delay', 10)); ?>" min="1" max="60" class="small-text">
-                            <?php _e('minutes', 'ai-news-center'); ?>
-                            <p class="description"><?php _e('Wait time before auto-publishing (allows editor to cancel)', 'ai-news-center'); ?></p>
+                            минут
+                            <p class="description">Время ожидания перед авто-публикацией (позволяет отменить)</p>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php _e('Fetch Interval', 'ai-news-center'); ?></th>
+                        <th scope="row">Интервал сбора</th>
                         <td>
                             <input type="number" name="fetch_interval" value="<?php echo esc_attr(AINCC_Settings::get('fetch_interval', 5)); ?>" min="2" max="60" class="small-text">
-                            <?php _e('minutes', 'ai-news-center'); ?>
+                            минут
+                            <p class="description">Как часто проверять RSS источники</p>
                         </td>
                     </tr>
                 </table>
 
-                <h2 class="title"><?php _e('Quality Thresholds', 'ai-news-center'); ?></h2>
+                <h2 class="title">Пороги качества</h2>
                 <table class="form-table">
                     <tr>
-                        <th scope="row"><?php _e('Fact Check Threshold', 'ai-news-center'); ?></th>
+                        <th scope="row">Порог фактчекинга</th>
                         <td>
                             <input type="number" name="fact_check_threshold" value="<?php echo esc_attr(AINCC_Settings::get('fact_check_threshold', 0.6)); ?>" min="0" max="1" step="0.1" class="small-text">
-                            <p class="description"><?php _e('Articles below this score require manual approval (0-1)', 'ai-news-center'); ?></p>
+                            <p class="description">Статьи ниже этого порога требуют ручной проверки (0-1)</p>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><?php _e('Source Trust Threshold', 'ai-news-center'); ?></th>
+                        <th scope="row">Порог доверия источнику</th>
                         <td>
                             <input type="number" name="source_trust_threshold" value="<?php echo esc_attr(AINCC_Settings::get('source_trust_threshold', 0.7)); ?>" min="0" max="1" step="0.1" class="small-text">
-                            <p class="description"><?php _e('Sources below this trust score require manual approval (0-1)', 'ai-news-center'); ?></p>
+                            <p class="description">Источники ниже этого порога требуют ручной проверки (0-1)</p>
                         </td>
                     </tr>
                 </table>
 
                 <p class="submit">
-                    <input type="submit" name="aincc_save_settings" class="button button-primary" value="<?php _e('Save Settings', 'ai-news-center'); ?>">
-                    <a href="<?php echo admin_url('admin.php?page=ai-news-center'); ?>" class="button"><?php _e('Back to Dashboard', 'ai-news-center'); ?></a>
+                    <input type="submit" name="aincc_save_settings" class="button button-primary" value="Сохранить настройки">
+                    <a href="<?php echo admin_url('admin.php?page=ai-news-center'); ?>" class="button">Вернуться на панель</a>
                 </p>
             </form>
 
             <hr>
 
-            <h2><?php _e('Connection Tests', 'ai-news-center'); ?></h2>
+            <h2>Тесты подключения</h2>
             <p>
-                <button type="button" class="button" id="test-ai"><?php _e('Test AI Connection', 'ai-news-center'); ?></button>
-                <button type="button" class="button" id="test-telegram"><?php _e('Test Telegram', 'ai-news-center'); ?></button>
-                <button type="button" class="button" id="test-pexels"><?php _e('Test Pexels', 'ai-news-center'); ?></button>
+                <button type="button" class="button button-primary" id="test-ai">Тест AI</button>
+                <button type="button" class="button" id="test-telegram">Тест Telegram</button>
+                <button type="button" class="button" id="test-pexels">Тест Pexels</button>
+                <button type="button" class="button" id="fetch-news-now" style="background: #28a745; border-color: #28a745; color: #fff;">Собрать новости сейчас</button>
             </p>
-            <div id="test-results"></div>
+            <div id="test-results" style="margin-top: 15px;"></div>
 
             <script>
             jQuery(function($) {
-                function testConnection(endpoint, button) {
-                    $(button).prop('disabled', true).text('Testing...');
-                    $.post('<?php echo rest_url('aincc/v1/'); ?>' + endpoint, {}, function(response) {
-                        $('#test-results').html('<div class="notice notice-' + (response.success ? 'success' : 'error') + '"><p>' + response.message + '</p></div>');
-                    }).fail(function(xhr) {
-                        $('#test-results').html('<div class="notice notice-error"><p>Error: ' + xhr.responseJSON?.message || 'Connection failed' + '</p></div>');
-                    }).always(function() {
-                        $(button).prop('disabled', false).text($(button).data('original-text'));
+                var restNonce = '<?php echo wp_create_nonce('wp_rest'); ?>';
+
+                function testConnection(endpoint, button, originalText) {
+                    $(button).prop('disabled', true).text('Проверка...');
+
+                    $.ajax({
+                        url: '<?php echo rest_url('aincc/v1/'); ?>' + endpoint,
+                        method: 'POST',
+                        beforeSend: function(xhr) {
+                            xhr.setRequestHeader('X-WP-Nonce', restNonce);
+                        },
+                        success: function(response) {
+                            var msg = response.message || (response.success ? 'Подключение успешно!' : 'Ошибка подключения');
+                            $('#test-results').html('<div class="notice notice-' + (response.success ? 'success' : 'error') + '"><p>' + msg + '</p></div>');
+                        },
+                        error: function(xhr) {
+                            var errMsg = 'Ошибка подключения';
+                            if (xhr.responseJSON && xhr.responseJSON.message) {
+                                errMsg = xhr.responseJSON.message;
+                            }
+                            $('#test-results').html('<div class="notice notice-error"><p>' + errMsg + '</p></div>');
+                        },
+                        complete: function() {
+                            $(button).prop('disabled', false).text(originalText);
+                        }
                     });
                 }
 
-                $('#test-ai').data('original-text', '<?php _e('Test AI Connection', 'ai-news-center'); ?>').click(function() { testConnection('test/ai', this); });
-                $('#test-telegram').data('original-text', '<?php _e('Test Telegram', 'ai-news-center'); ?>').click(function() { testConnection('test/telegram', this); });
-                $('#test-pexels').data('original-text', '<?php _e('Test Pexels', 'ai-news-center'); ?>').click(function() { testConnection('test/pexels', this); });
+                $('#test-ai').click(function() { testConnection('test/ai', this, 'Тест AI'); });
+                $('#test-telegram').click(function() { testConnection('test/telegram', this, 'Тест Telegram'); });
+                $('#test-pexels').click(function() { testConnection('test/pexels', this, 'Тест Pexels'); });
+
+                $('#fetch-news-now').click(function() {
+                    var btn = $(this);
+                    btn.prop('disabled', true).text('Сбор...');
+
+                    $.ajax({
+                        url: '<?php echo rest_url('aincc/v1/'); ?>system/cron/trigger',
+                        method: 'POST',
+                        beforeSend: function(xhr) {
+                            xhr.setRequestHeader('X-WP-Nonce', restNonce);
+                            xhr.setRequestHeader('Content-Type', 'application/json');
+                        },
+                        data: JSON.stringify({ hook: 'aincc_fetch_sources' }),
+                        success: function(response) {
+                            $('#test-results').html('<div class="notice notice-success"><p>Сбор новостей запущен! Проверьте панель через минуту.</p></div>');
+                        },
+                        error: function(xhr) {
+                            var errMsg = 'Ошибка запуска сбора';
+                            if (xhr.responseJSON && xhr.responseJSON.message) {
+                                errMsg = xhr.responseJSON.message;
+                            }
+                            $('#test-results').html('<div class="notice notice-error"><p>' + errMsg + '</p></div>');
+                        },
+                        complete: function() {
+                            btn.prop('disabled', false).text('Собрать новости сейчас');
+                        }
+                    });
+                });
             });
             </script>
         </div>
@@ -453,7 +515,7 @@ class AINCC_Admin {
     }
 
     /**
-     * Add admin bar menu
+     * Add admin bar menu (Russian)
      */
     public function add_admin_bar_menu($wp_admin_bar) {
         if (!current_user_can('edit_posts')) {
@@ -463,7 +525,7 @@ class AINCC_Admin {
         $db = new AINCC_Database();
         $pending = $db->count_drafts_by_status(['pending_ok']);
 
-        $title = __('AI News', 'ai-news-center');
+        $title = 'AI Новости';
         if ($pending > 0) {
             $title .= sprintf(' <span class="aincc-badge">%d</span>', $pending);
         }
@@ -477,15 +539,22 @@ class AINCC_Admin {
         $wp_admin_bar->add_node([
             'id' => 'aincc-pending',
             'parent' => 'aincc-admin-bar',
-            'title' => sprintf(__('Pending Review (%d)', 'ai-news-center'), $pending),
+            'title' => sprintf('На проверке (%d)', $pending),
             'href' => admin_url('admin.php?page=ai-news-center&status=pending_ok'),
         ]);
 
         $wp_admin_bar->add_node([
             'id' => 'aincc-create',
             'parent' => 'aincc-admin-bar',
-            'title' => __('Create Article', 'ai-news-center'),
+            'title' => 'Создать статью',
             'href' => admin_url('admin.php?page=ai-news-center-create'),
+        ]);
+
+        $wp_admin_bar->add_node([
+            'id' => 'aincc-from-url',
+            'parent' => 'aincc-admin-bar',
+            'title' => 'Из ссылки',
+            'href' => admin_url('admin.php?page=ai-news-center-from-url'),
         ]);
     }
 

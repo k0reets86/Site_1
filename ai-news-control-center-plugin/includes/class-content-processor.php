@@ -687,6 +687,127 @@ class AINCC_Content_Processor {
     }
 
     /**
+     * Process article from URL
+     */
+    public function process_article_from_url($url, $source_lang = 'de', $target_langs = ['de', 'ua', 'ru', 'en'], $category = 'nachrichten') {
+        // Fetch content from URL
+        $parser = new AINCC_RSS_Parser();
+        $fetched = $parser->fetch_full_content($url);
+
+        if (!$fetched || empty($fetched['text'])) {
+            return [
+                'success' => false,
+                'error' => 'Не удалось получить содержимое страницы',
+            ];
+        }
+
+        $original_content = $fetched['html'] ?: $fetched['text'];
+
+        // Use AI to extract article data
+        $extraction_prompt = "Проанализируй HTML-контент и извлеки статью в формате JSON:
+{
+  \"title\": \"заголовок статьи\",
+  \"lead\": \"первый абзац или лид (1-2 предложения)\",
+  \"body\": \"основной текст статьи в HTML формате\",
+  \"author\": \"автор если есть\",
+  \"date\": \"дата публикации если есть\"
+}
+
+Верни ТОЛЬКО JSON, никаких пояснений.";
+
+        $extracted = $this->ai->complete($original_content, $extraction_prompt);
+
+        if (!$extracted['success']) {
+            // Fallback: use simple extraction
+            $title = $this->extract_title_from_html($original_content);
+            $body = $fetched['text'];
+            $lead = substr($body, 0, 200) . '...';
+        } else {
+            // Parse JSON response
+            $data = json_decode($extracted['content'], true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                // Try to extract JSON from response
+                if (preg_match('/\{[\s\S]*\}/', $extracted['content'], $matches)) {
+                    $data = json_decode($matches[0], true);
+                }
+            }
+
+            if (!$data) {
+                $title = $this->extract_title_from_html($original_content);
+                $body = $fetched['text'];
+                $lead = substr($body, 0, 200) . '...';
+            } else {
+                $title = $data['title'] ?? '';
+                $lead = $data['lead'] ?? '';
+                $body = $data['body'] ?? $fetched['text'];
+            }
+        }
+
+        if (empty($title)) {
+            return [
+                'success' => false,
+                'error' => 'Не удалось извлечь заголовок',
+            ];
+        }
+
+        // Now rewrite the article using AI for better quality
+        $full_content = $title . "\n\n" . $lead . "\n\n" . $body;
+        $rewritten = $this->ai->rewrite($full_content, 'News article for Ukrainian audience in Germany. Professional, factual style like Deutsche Welle.', $source_lang);
+
+        if ($rewritten['success']) {
+            $parsed = $this->parse_generated_content($rewritten['content'], $source_lang);
+            if ($parsed['title']) {
+                $title = $parsed['title'];
+            }
+            if ($parsed['lead']) {
+                $lead = $parsed['lead'];
+            }
+            if ($parsed['body']) {
+                $body = $parsed['body'];
+            }
+        }
+
+        // Create article data for manual processing
+        $article_data = [
+            'title' => $title,
+            'lead' => $lead,
+            'body' => $body,
+            'source_lang' => $source_lang,
+            'target_langs' => $target_langs,
+            'category' => $category,
+            'sources' => [
+                [
+                    'name' => parse_url($url, PHP_URL_HOST),
+                    'url' => $url,
+                    'date' => date('d.m.Y'),
+                ]
+            ],
+        ];
+
+        // Use existing manual article processor
+        return $this->process_manual_article($article_data);
+    }
+
+    /**
+     * Extract title from HTML
+     */
+    private function extract_title_from_html($html) {
+        // Try <h1>
+        if (preg_match('/<h1[^>]*>(.*?)<\/h1>/is', $html, $matches)) {
+            return strip_tags($matches[1]);
+        }
+        // Try <title>
+        if (preg_match('/<title[^>]*>(.*?)<\/title>/is', $html, $matches)) {
+            return strip_tags($matches[1]);
+        }
+        // Try og:title
+        if (preg_match('/property=["\']og:title["\'][^>]*content=["\']([^"\']+)/is', $html, $matches)) {
+            return $matches[1];
+        }
+        return '';
+    }
+
+    /**
      * Regenerate content for a draft
      */
     public function regenerate_draft($draft_id, $what = 'all', $instructions = '') {
