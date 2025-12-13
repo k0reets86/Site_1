@@ -17,12 +17,46 @@ class AINCC_Admin {
         add_action('admin_menu', [$this, 'add_admin_menu']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_scripts']);
         add_action('admin_init', [$this, 'register_settings']);
+        add_action('admin_init', [$this, 'check_and_init_database']);
 
         // Add admin bar menu
         add_action('admin_bar_menu', [$this, 'add_admin_bar_menu'], 100);
 
         // Ajax handlers
         add_action('wp_ajax_aincc_quick_stats', [$this, 'ajax_quick_stats']);
+    }
+
+    /**
+     * Check if database tables exist and create if not
+     */
+    public function check_and_init_database() {
+        // Only check on our plugin pages
+        if (!isset($_GET['page']) || strpos($_GET['page'], 'ai-news-center') === false) {
+            return;
+        }
+
+        // Check if we already initialized in this session
+        $db_initialized = get_transient('aincc_db_initialized');
+        if ($db_initialized) {
+            return;
+        }
+
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'aincc_sources';
+
+        // Check if main table exists
+        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'");
+
+        if (!$table_exists) {
+            // Tables don't exist - create them
+            $db = new AINCC_Database();
+            $db->create_tables();
+
+            AINCC_Logger::info('Database auto-initialized on first admin access');
+        }
+
+        // Set transient to avoid checking every page load (valid for 1 hour)
+        set_transient('aincc_db_initialized', true, HOUR_IN_SECONDS);
     }
 
     /**
@@ -413,9 +447,25 @@ class AINCC_Admin {
                 <button type="button" class="button button-primary" id="test-ai">Тест AI</button>
                 <button type="button" class="button" id="test-telegram">Тест Telegram</button>
                 <button type="button" class="button" id="test-pexels">Тест Pexels</button>
-                <button type="button" class="button" id="fetch-news-now" style="background: #28a745; border-color: #28a745; color: #fff;">Собрать новости сейчас</button>
             </p>
             <div id="test-results" style="margin-top: 15px;"></div>
+
+            <hr>
+
+            <h2>Управление плагином</h2>
+            <p>
+                <button type="button" class="button button-primary" id="fetch-news-now" style="background: #28a745; border-color: #28a745; color: #fff;">
+                    &#x21bb; Собрать новости сейчас
+                </button>
+                <button type="button" class="button" id="reinit-plugin" style="background: #0073aa; border-color: #0073aa; color: #fff;">
+                    &#x21ba; Переинициализировать БД
+                </button>
+            </p>
+            <p class="description">
+                "Собрать новости" - запустит сбор RSS прямо сейчас.<br>
+                "Переинициализировать БД" - пересоздаст таблицы и загрузит 35+ источников (если пусто).
+            </p>
+            <div id="action-results" style="margin-top: 15px;"></div>
 
             <script>
             jQuery(function($) {
@@ -453,28 +503,58 @@ class AINCC_Admin {
 
                 $('#fetch-news-now').click(function() {
                     var btn = $(this);
-                    btn.prop('disabled', true).text('Сбор...');
+                    var originalText = btn.html();
+                    btn.prop('disabled', true).html('Сбор...');
 
                     $.ajax({
-                        url: '<?php echo rest_url('aincc/v1/'); ?>system/cron/trigger',
+                        url: '<?php echo rest_url('aincc/v1/'); ?>fetch/now',
                         method: 'POST',
                         beforeSend: function(xhr) {
                             xhr.setRequestHeader('X-WP-Nonce', restNonce);
-                            xhr.setRequestHeader('Content-Type', 'application/json');
                         },
-                        data: JSON.stringify({ hook: 'aincc_fetch_sources' }),
                         success: function(response) {
-                            $('#test-results').html('<div class="notice notice-success"><p>Сбор новостей запущен! Проверьте панель через минуту.</p></div>');
+                            $('#action-results').html('<div class="notice notice-success"><p>' + (response.message || 'Сбор новостей запущен!') + '</p></div>');
                         },
                         error: function(xhr) {
                             var errMsg = 'Ошибка запуска сбора';
                             if (xhr.responseJSON && xhr.responseJSON.message) {
                                 errMsg = xhr.responseJSON.message;
                             }
-                            $('#test-results').html('<div class="notice notice-error"><p>' + errMsg + '</p></div>');
+                            $('#action-results').html('<div class="notice notice-error"><p>' + errMsg + '</p></div>');
                         },
                         complete: function() {
-                            btn.prop('disabled', false).text('Собрать новости сейчас');
+                            btn.prop('disabled', false).html(originalText);
+                        }
+                    });
+                });
+
+                $('#reinit-plugin').click(function() {
+                    if (!confirm('Пересоздать таблицы БД и загрузить источники?')) {
+                        return;
+                    }
+
+                    var btn = $(this);
+                    var originalText = btn.html();
+                    btn.prop('disabled', true).html('Инициализация...');
+
+                    $.ajax({
+                        url: '<?php echo rest_url('aincc/v1/'); ?>system/reinitialize',
+                        method: 'POST',
+                        beforeSend: function(xhr) {
+                            xhr.setRequestHeader('X-WP-Nonce', restNonce);
+                        },
+                        success: function(response) {
+                            $('#action-results').html('<div class="notice notice-success"><p>' + (response.message || 'Плагин переинициализирован!') + '</p></div>');
+                        },
+                        error: function(xhr) {
+                            var errMsg = 'Ошибка инициализации';
+                            if (xhr.responseJSON && xhr.responseJSON.message) {
+                                errMsg = xhr.responseJSON.message;
+                            }
+                            $('#action-results').html('<div class="notice notice-error"><p>' + errMsg + '</p></div>');
+                        },
+                        complete: function() {
+                            btn.prop('disabled', false).html(originalText);
                         }
                     });
                 });
