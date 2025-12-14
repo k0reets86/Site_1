@@ -100,6 +100,24 @@ class AINCC_Settings {
             // System Settings
             'debug_mode' => self::get('debug_mode', false),
             'log_retention_days' => self::get('log_retention_days', 30),
+
+            // Cron Settings
+            'fetch_interval' => self::get('fetch_interval', 5),
+            'process_interval' => self::get('process_interval', 2),
+            'auto_publish_interval' => self::get('auto_publish_interval', 5),
+            'batch_size' => self::get('batch_size', 5),
+
+            // AI Prompts Settings
+            'prompt_rewrite_style' => self::get('prompt_rewrite_style', 'Профессиональная новостная статья. Факты, ясность, без эмоций. Стиль Deutsche Welle. Для украинской аудитории в Германии.'),
+            'prompt_tone' => self::get('prompt_tone', 'neutral'),
+            'prompt_custom_instructions' => self::get('prompt_custom_instructions', ''),
+            'prompt_seo_focus' => self::get('prompt_seo_focus', 'Украинцы в Германии, миграция, интеграция'),
+            'prompt_image_style' => self::get('prompt_image_style', 'professional news photography'),
+            'prompt_translation_notes' => self::get('prompt_translation_notes', 'Сохраняй немецкие термины (BAMF, Jobcenter) с пояснениями'),
+
+            // Location Priority Settings
+            'location_priority' => self::get('location_priority', ['München', 'Bayern', 'Deutschland', 'Europa', 'International', 'Ukraine']),
+            'location_priority_enabled' => self::get('location_priority_enabled', true),
         ];
     }
 
