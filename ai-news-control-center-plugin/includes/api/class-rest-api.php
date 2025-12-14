@@ -370,6 +370,94 @@ class AINCC_REST_API {
             'callback' => [$this, 'toggle_source'],
             'permission_callback' => [$this, 'check_permission'],
         ]);
+
+        // Clear rejected/processed items from queue
+        register_rest_route(self::NAMESPACE, '/queue/clear', [
+            'methods' => 'POST',
+            'callback' => [$this, 'clear_queue'],
+            'permission_callback' => [$this, 'check_admin_permission'],
+            'args' => [
+                'status' => ['type' => 'string', 'default' => 'rejected'],
+            ],
+        ]);
+
+        // Delete multiple drafts
+        register_rest_route(self::NAMESPACE, '/drafts/bulk-delete', [
+            'methods' => 'POST',
+            'callback' => [$this, 'bulk_delete_drafts'],
+            'permission_callback' => [$this, 'check_admin_permission'],
+        ]);
+
+        // Get/Set AI prompts settings
+        register_rest_route(self::NAMESPACE, '/settings/prompts', [
+            [
+                'methods' => 'GET',
+                'callback' => [$this, 'get_prompts'],
+                'permission_callback' => [$this, 'check_admin_permission'],
+            ],
+            [
+                'methods' => 'PUT',
+                'callback' => [$this, 'update_prompts'],
+                'permission_callback' => [$this, 'check_admin_permission'],
+            ],
+        ]);
+
+        // Get/Set cron intervals
+        register_rest_route(self::NAMESPACE, '/settings/cron', [
+            [
+                'methods' => 'GET',
+                'callback' => [$this, 'get_cron_settings'],
+                'permission_callback' => [$this, 'check_admin_permission'],
+            ],
+            [
+                'methods' => 'PUT',
+                'callback' => [$this, 'update_cron_settings'],
+                'permission_callback' => [$this, 'check_admin_permission'],
+            ],
+        ]);
+
+        // Reschedule all cron jobs
+        register_rest_route(self::NAMESPACE, '/system/cron/reschedule', [
+            'methods' => 'POST',
+            'callback' => [$this, 'reschedule_cron'],
+            'permission_callback' => [$this, 'check_admin_permission'],
+        ]);
+
+        // Get queue statistics
+        register_rest_route(self::NAMESPACE, '/queue/stats', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_queue_stats'],
+            'permission_callback' => [$this, 'check_permission'],
+        ]);
+
+        // AI rewrite endpoint with custom instructions
+        register_rest_route(self::NAMESPACE, '/drafts/(?P<id>[a-zA-Z0-9_]+)/ai-rewrite', [
+            'methods' => 'POST',
+            'callback' => [$this, 'ai_rewrite_draft'],
+            'permission_callback' => [$this, 'check_permission'],
+            'args' => [
+                'instructions' => ['type' => 'string', 'required' => true],
+            ],
+        ]);
+
+        // Upload media for draft
+        register_rest_route(self::NAMESPACE, '/drafts/(?P<id>[a-zA-Z0-9_]+)/upload-image', [
+            'methods' => 'POST',
+            'callback' => [$this, 'upload_draft_image'],
+            'permission_callback' => [$this, 'check_permission'],
+        ]);
+
+        // Set image from URL for draft
+        register_rest_route(self::NAMESPACE, '/drafts/(?P<id>[a-zA-Z0-9_]+)/set-image', [
+            'methods' => 'POST',
+            'callback' => [$this, 'set_draft_image'],
+            'permission_callback' => [$this, 'check_permission'],
+            'args' => [
+                'image_url' => ['type' => 'string', 'required' => true],
+                'alt' => ['type' => 'string', 'default' => ''],
+                'author' => ['type' => 'string', 'default' => ''],
+            ],
+        ]);
     }
 
     /**
@@ -1237,5 +1325,410 @@ class AINCC_REST_API {
             'success' => false,
             'message' => 'Ошибка обновления',
         ], 500);
+    }
+
+    /**
+     * Clear queue items by status
+     */
+    public function clear_queue($request) {
+        global $wpdb;
+        $status = $request->get_param('status') ?: 'rejected';
+        $db = new AINCC_Database();
+
+        // Valid statuses to clear
+        $valid_statuses = ['rejected', 'published', 'failed'];
+        if (!in_array($status, $valid_statuses)) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Недопустимый статус',
+            ], 400);
+        }
+
+        $deleted = $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$db->table('drafts')} WHERE status = %s",
+                $status
+            )
+        );
+
+        AINCC_Logger::info('Queue cleared', ['status' => $status, 'deleted' => $deleted]);
+
+        return new WP_REST_Response([
+            'success' => true,
+            'deleted' => (int) $deleted,
+            'message' => "Удалено записей: {$deleted}",
+        ], 200);
+    }
+
+    /**
+     * Bulk delete drafts
+     */
+    public function bulk_delete_drafts($request) {
+        global $wpdb;
+        $data = $request->get_json_params();
+        $ids = $data['ids'] ?? [];
+
+        if (empty($ids) || !is_array($ids)) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Не указаны ID для удаления',
+            ], 400);
+        }
+
+        $db = new AINCC_Database();
+        $deleted = 0;
+
+        foreach ($ids as $id) {
+            $result = $wpdb->delete($db->table('drafts'), ['id' => sanitize_text_field($id)]);
+            if ($result) {
+                $deleted++;
+            }
+        }
+
+        return new WP_REST_Response([
+            'success' => true,
+            'deleted' => $deleted,
+            'message' => "Удалено: {$deleted}",
+        ], 200);
+    }
+
+    /**
+     * Get AI prompts settings
+     */
+    public function get_prompts($request) {
+        $prompts = [
+            'rewrite_style' => AINCC_Settings::get('prompt_rewrite_style',
+                'Профессиональная новостная статья. Факты, ясность, без эмоций. Стиль Deutsche Welle. Для украинской аудитории в Германии.'),
+            'tone' => AINCC_Settings::get('prompt_tone', 'neutral'),
+            'custom_instructions' => AINCC_Settings::get('prompt_custom_instructions', ''),
+            'seo_focus' => AINCC_Settings::get('prompt_seo_focus', 'Украинцы в Германии, миграция, интеграция'),
+            'image_style' => AINCC_Settings::get('prompt_image_style', 'professional news photography'),
+            'translation_notes' => AINCC_Settings::get('prompt_translation_notes', 'Сохраняй немецкие термины (BAMF, Jobcenter) с пояснениями'),
+        ];
+
+        return new WP_REST_Response($prompts, 200);
+    }
+
+    /**
+     * Update AI prompts settings
+     */
+    public function update_prompts($request) {
+        $data = $request->get_json_params();
+
+        $allowed = ['rewrite_style', 'tone', 'custom_instructions', 'seo_focus', 'image_style', 'translation_notes'];
+
+        foreach ($allowed as $key) {
+            if (isset($data[$key])) {
+                AINCC_Settings::set('prompt_' . $key, sanitize_textarea_field($data[$key]));
+            }
+        }
+
+        AINCC_Logger::info('AI prompts updated');
+
+        return new WP_REST_Response(['success' => true], 200);
+    }
+
+    /**
+     * Get cron settings
+     */
+    public function get_cron_settings($request) {
+        $settings = [
+            'fetch_interval' => AINCC_Settings::get('fetch_interval', 5),
+            'process_interval' => AINCC_Settings::get('process_interval', 2),
+            'auto_publish_interval' => AINCC_Settings::get('auto_publish_interval', 5),
+            'auto_publish_enabled' => AINCC_Settings::get('auto_publish_enabled', false),
+            'auto_publish_delay' => AINCC_Settings::get('auto_publish_delay', 10),
+            'batch_size' => AINCC_Settings::get('batch_size', 5),
+        ];
+
+        // Add current cron status
+        $scheduler = new AINCC_Scheduler();
+        $settings['cron_status'] = $scheduler->get_cron_status();
+
+        return new WP_REST_Response($settings, 200);
+    }
+
+    /**
+     * Update cron settings
+     */
+    public function update_cron_settings($request) {
+        $data = $request->get_json_params();
+
+        $intervals = [
+            'fetch_interval' => [2, 5, 10, 15, 30, 60, 120],
+            'process_interval' => [2, 5, 10],
+            'auto_publish_interval' => [5, 10, 15, 30],
+        ];
+
+        // Validate and set intervals
+        foreach ($intervals as $key => $valid_values) {
+            if (isset($data[$key])) {
+                $value = (int) $data[$key];
+                if (in_array($value, $valid_values)) {
+                    AINCC_Settings::set($key, $value);
+                }
+            }
+        }
+
+        // Other settings
+        if (isset($data['auto_publish_enabled'])) {
+            AINCC_Settings::set('auto_publish_enabled', (bool) $data['auto_publish_enabled']);
+        }
+        if (isset($data['auto_publish_delay'])) {
+            AINCC_Settings::set('auto_publish_delay', max(0, min(60, (int) $data['auto_publish_delay'])));
+        }
+        if (isset($data['batch_size'])) {
+            AINCC_Settings::set('batch_size', max(1, min(20, (int) $data['batch_size'])));
+        }
+
+        AINCC_Logger::info('Cron settings updated', $data);
+
+        return new WP_REST_Response(['success' => true], 200);
+    }
+
+    /**
+     * Reschedule all cron jobs
+     */
+    public function reschedule_cron($request) {
+        $scheduler = new AINCC_Scheduler();
+        $result = $scheduler->reschedule_all();
+
+        return new WP_REST_Response($result, $result['success'] ? 200 : 400);
+    }
+
+    /**
+     * Get queue statistics
+     */
+    public function get_queue_stats($request) {
+        global $wpdb;
+        $db = new AINCC_Database();
+
+        $stats = [
+            'drafts' => [
+                'pending_ok' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$db->table('drafts')} WHERE status = 'pending_ok'"),
+                'auto_ready' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$db->table('drafts')} WHERE status = 'auto_ready'"),
+                'published' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$db->table('drafts')} WHERE status = 'published'"),
+                'rejected' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$db->table('drafts')} WHERE status = 'rejected'"),
+                'scheduled' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$db->table('drafts')} WHERE status = 'scheduled'"),
+            ],
+            'queue' => [
+                'pending' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$db->table('queue')} WHERE status = 'pending'"),
+                'processing' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$db->table('queue')} WHERE status = 'processing'"),
+                'failed' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$db->table('queue')} WHERE status = 'failed'"),
+            ],
+            'raw_items' => [
+                'new' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$db->table('raw_items')} WHERE status = 'new'"),
+                'processing' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$db->table('raw_items')} WHERE status = 'processing'"),
+                'processed' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$db->table('raw_items')} WHERE status = 'processed'"),
+            ],
+            'sources' => [
+                'total' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$db->table('sources')}"),
+                'enabled' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$db->table('sources')} WHERE enabled = 1"),
+            ],
+        ];
+
+        return new WP_REST_Response($stats, 200);
+    }
+
+    /**
+     * AI rewrite draft with custom instructions
+     */
+    public function ai_rewrite_draft($request) {
+        $id = $request->get_param('id');
+        $instructions = $request->get_param('instructions');
+
+        $db = new AINCC_Database();
+        $draft = $db->get_draft($id);
+
+        if (!$draft) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Черновик не найден',
+            ], 404);
+        }
+
+        try {
+            $ai = AINCC_AI_Provider_Factory::create();
+            $content = $draft['title'] . "\n\n" . $draft['lead'] . "\n\n" . $draft['body_html'];
+
+            // Get custom prompt style from settings
+            $base_style = AINCC_Settings::get('prompt_rewrite_style',
+                'Профессиональная новостная статья. Факты, ясность, без эмоций.');
+
+            $full_instructions = $base_style . "\n\nДополнительные инструкции: " . $instructions;
+
+            $result = $ai->rewrite($content, $full_instructions, $draft['lang']);
+
+            if ($result['success']) {
+                // Parse the rewritten content
+                $processor = new AINCC_Content_Processor();
+                $parsed = $this->parse_ai_content($result['content']);
+
+                // Update draft
+                $update_data = [
+                    'body_html' => $this->convert_markdown_to_html($parsed['body'] ?? $result['content']),
+                ];
+
+                if (!empty($parsed['title'])) {
+                    $update_data['title'] = $parsed['title'];
+                }
+                if (!empty($parsed['lead'])) {
+                    $update_data['lead'] = $parsed['lead'];
+                }
+
+                $db->update_draft($id, $update_data);
+
+                return new WP_REST_Response([
+                    'success' => true,
+                    'message' => 'Текст переписан',
+                    'content' => $update_data,
+                ], 200);
+            }
+
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => $result['error'] ?? 'AI error',
+            ], 400);
+
+        } catch (Exception $e) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Ошибка: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Parse AI content response
+     */
+    private function parse_ai_content($content) {
+        $result = ['title' => '', 'lead' => '', 'body' => $content];
+
+        // Try to extract title
+        if (preg_match('/<title>(.*?)<\/title>/is', $content, $m)) {
+            $result['title'] = trim(strip_tags($m[1]));
+            $content = str_replace($m[0], '', $content);
+        }
+
+        // Try to extract lead
+        if (preg_match('/<lead>(.*?)<\/lead>/is', $content, $m)) {
+            $result['lead'] = trim(strip_tags($m[1]));
+            $content = str_replace($m[0], '', $content);
+        }
+
+        $result['body'] = trim($content);
+        return $result;
+    }
+
+    /**
+     * Convert Markdown to HTML
+     */
+    private function convert_markdown_to_html($text) {
+        // Convert **bold** to <strong>
+        $text = preg_replace('/\*\*(.+?)\*\*/s', '<strong>$1</strong>', $text);
+
+        // Convert *italic* to <em>
+        $text = preg_replace('/\*(.+?)\*/s', '<em>$1</em>', $text);
+
+        // Convert ## headers
+        $text = preg_replace('/^### (.+)$/m', '<h3>$1</h3>', $text);
+        $text = preg_replace('/^## (.+)$/m', '<h2>$1</h2>', $text);
+        $text = preg_replace('/^# (.+)$/m', '<h1>$1</h1>', $text);
+
+        // Convert line breaks to paragraphs
+        $paragraphs = preg_split('/\n\s*\n/', $text);
+        $paragraphs = array_filter(array_map('trim', $paragraphs));
+
+        if (count($paragraphs) > 1) {
+            $text = '<p>' . implode('</p><p>', $paragraphs) . '</p>';
+        }
+
+        // Clean up any remaining markdown artifacts
+        $text = preg_replace('/^\s*[-*]\s+/m', '• ', $text);
+
+        return $text;
+    }
+
+    /**
+     * Upload image for draft
+     */
+    public function upload_draft_image($request) {
+        $id = $request->get_param('id');
+        $files = $request->get_file_params();
+
+        if (empty($files['image'])) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Файл не загружен',
+            ], 400);
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+
+        $attachment_id = media_handle_upload('image', 0);
+
+        if (is_wp_error($attachment_id)) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => $attachment_id->get_error_message(),
+            ], 400);
+        }
+
+        $image_url = wp_get_attachment_url($attachment_id);
+
+        $db = new AINCC_Database();
+        $db->update_draft($id, [
+            'image_url' => $image_url,
+            'image_local_id' => $attachment_id,
+            'image_author' => 'Uploaded',
+            'image_license' => 'User Upload',
+        ]);
+
+        return new WP_REST_Response([
+            'success' => true,
+            'image_url' => $image_url,
+            'attachment_id' => $attachment_id,
+        ], 200);
+    }
+
+    /**
+     * Set image from URL for draft
+     */
+    public function set_draft_image($request) {
+        $id = $request->get_param('id');
+        $image_url = $request->get_param('image_url');
+        $alt = $request->get_param('alt') ?: '';
+        $author = $request->get_param('author') ?: '';
+
+        if (!filter_var($image_url, FILTER_VALIDATE_URL)) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Некорректный URL изображения',
+            ], 400);
+        }
+
+        $db = new AINCC_Database();
+        $draft = $db->get_draft($id);
+
+        if (!$draft) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Черновик не найден',
+            ], 404);
+        }
+
+        $db->update_draft($id, [
+            'image_url' => esc_url_raw($image_url),
+            'image_alt' => sanitize_text_field($alt ?: $draft['title']),
+            'image_author' => sanitize_text_field($author),
+            'image_license' => 'External',
+        ]);
+
+        return new WP_REST_Response([
+            'success' => true,
+            'image_url' => $image_url,
+        ], 200);
     }
 }

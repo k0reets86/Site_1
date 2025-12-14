@@ -236,6 +236,12 @@
     const PreviewModal = ({ draft, onClose, onAction, onReload }) => {
         const [loading, setLoading] = useState(false);
         const [editing, setEditing] = useState(false);
+        const [showImageSearch, setShowImageSearch] = useState(false);
+        const [imageQuery, setImageQuery] = useState('');
+        const [imageResults, setImageResults] = useState([]);
+        const [imageLoading, setImageLoading] = useState(false);
+        const [aiRewriting, setAiRewriting] = useState(false);
+        const [aiInstructions, setAiInstructions] = useState('');
         const [editData, setEditData] = useState({
             title: draft?.title || '',
             lead: draft?.lead || '',
@@ -243,6 +249,7 @@
             seo_title: draft?.seo_title || '',
             meta_description: draft?.meta_description || '',
             category: draft?.category || '',
+            image_url: draft?.image_url || '',
         });
 
         useEffect(() => {
@@ -254,7 +261,9 @@
                     seo_title: draft.seo_title || '',
                     meta_description: draft.meta_description || '',
                     category: draft.category || '',
+                    image_url: draft.image_url || '',
                 });
+                setImageQuery(draft.title || '');
             }
         }, [draft]);
 
@@ -286,6 +295,70 @@
             setLoading(false);
         };
 
+        const handleSearchImages = async () => {
+            if (!imageQuery.trim()) return;
+            setImageLoading(true);
+            try {
+                const result = await api.get(`/images/search?query=${encodeURIComponent(imageQuery)}&per_page=8`);
+                setImageResults(result.items || []);
+            } catch (e) {
+                toasts.error('Ошибка поиска изображений');
+            }
+            setImageLoading(false);
+        };
+
+        const handleSelectImage = async (image) => {
+            try {
+                await api.post(`/drafts/${draft.id}/set-image`, {
+                    image_url: image.url,
+                    alt: image.alt || draft.title,
+                    author: image.author || '',
+                });
+                setEditData({ ...editData, image_url: image.url });
+                setShowImageSearch(false);
+                toasts.success('Изображение установлено');
+                onReload && onReload();
+            } catch (e) {
+                toasts.error('Ошибка установки изображения');
+            }
+        };
+
+        const handleAIRewrite = async () => {
+            if (!aiInstructions.trim()) {
+                toasts.error('Введите инструкции для AI');
+                return;
+            }
+            setAiRewriting(true);
+            try {
+                const result = await api.post(`/drafts/${draft.id}/ai-rewrite`, { instructions: aiInstructions });
+                if (result.success && result.content) {
+                    setEditData({
+                        ...editData,
+                        body_html: result.content.body_html || editData.body_html,
+                        title: result.content.title || editData.title,
+                        lead: result.content.lead || editData.lead,
+                    });
+                    toasts.success('Текст переписан!');
+                    setAiInstructions('');
+                }
+            } catch (e) {
+                toasts.error('Ошибка AI: ' + e.message);
+            }
+            setAiRewriting(false);
+        };
+
+        const handleDelete = async () => {
+            if (!confirm('Удалить этот черновик?')) return;
+            try {
+                await api.delete(`/drafts/${draft.id}`);
+                toasts.success('Удалено');
+                onClose();
+                onReload && onReload();
+            } catch (e) {
+                toasts.error('Ошибка удаления');
+            }
+        };
+
         const categories = [
             { value: 'politik', label: 'Политика' },
             { value: 'wirtschaft', label: 'Экономика' },
@@ -305,6 +378,7 @@
                     h('h2', null, editing ? 'Редактирование статьи' : 'Просмотр статьи'),
                     h('div', { style: { display: 'flex', alignItems: 'center', gap: 12 } },
                         h('span', { style: { color: '#64748b', fontSize: 13 } }, 'Язык: ', draft.lang?.toUpperCase()),
+                        h(StatusBadge, { status: draft.status }),
                         h('button', { className: 'aincc-modal-close', onClick: onClose }, '✕')
                     )
                 ),
@@ -312,6 +386,37 @@
                     editing ? (
                         // Режим редактирования
                         h('div', { style: { display: 'flex', flexDirection: 'column', gap: 16 } },
+                            // Изображение
+                            h('div', { className: 'aincc-form-group' },
+                                h('label', { className: 'aincc-label' }, 'Изображение'),
+                                h('div', { style: { display: 'flex', gap: 12, alignItems: 'flex-start' } },
+                                    editData.image_url && h('img', { src: editData.image_url, style: { width: 120, height: 80, objectFit: 'cover', borderRadius: 4 } }),
+                                    h('div', { style: { flex: 1 } },
+                                        h('input', { className: 'aincc-input', value: editData.image_url, placeholder: 'URL изображения',
+                                            onChange: (e) => setEditData({ ...editData, image_url: e.target.value }) }),
+                                        h('button', { type: 'button', className: 'aincc-btn aincc-btn-secondary', style: { marginTop: 8 },
+                                            onClick: () => setShowImageSearch(true) }, Icons.image, ' Найти изображение')
+                                    )
+                                )
+                            ),
+                            // Поиск изображений модалка
+                            showImageSearch && h('div', { style: { padding: 16, background: '#1e293b', borderRadius: 8, marginBottom: 16 } },
+                                h('div', { style: { display: 'flex', gap: 8, marginBottom: 12 } },
+                                    h('input', { className: 'aincc-input', style: { flex: 1 }, value: imageQuery,
+                                        onChange: (e) => setImageQuery(e.target.value), placeholder: 'Поиск на Pexels...',
+                                        onKeyPress: (e) => e.key === 'Enter' && handleSearchImages() }),
+                                    h('button', { className: 'aincc-btn aincc-btn-primary', onClick: handleSearchImages, disabled: imageLoading },
+                                        imageLoading ? 'Поиск...' : 'Найти'),
+                                    h('button', { className: 'aincc-btn aincc-btn-secondary', onClick: () => setShowImageSearch(false) }, '✕')
+                                ),
+                                h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 } },
+                                    imageResults.map(img => h('div', { key: img.id, style: { cursor: 'pointer', position: 'relative' },
+                                        onClick: () => handleSelectImage(img) },
+                                        h('img', { src: img.url_small || img.url, style: { width: '100%', height: 80, objectFit: 'cover', borderRadius: 4 } }),
+                                        h('div', { style: { position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.7)', color: 'white', fontSize: 10, padding: 2 } }, img.author)
+                                    ))
+                                )
+                            ),
                             h('div', { className: 'aincc-form-group' },
                                 h('label', { className: 'aincc-label' }, 'Заголовок'),
                                 h('input', {
@@ -325,6 +430,18 @@
                                     className: 'aincc-textarea', rows: 3, value: editData.lead,
                                     onChange: (e) => setEditData({ ...editData, lead: e.target.value }),
                                 })
+                            ),
+                            // AI Rewrite блок
+                            h('div', { style: { padding: 12, background: '#1e293b', borderRadius: 8, marginBottom: 8 } },
+                                h('label', { className: 'aincc-label' }, Icons.magic, ' AI переписать'),
+                                h('div', { style: { display: 'flex', gap: 8 } },
+                                    h('input', { className: 'aincc-input', style: { flex: 1 }, value: aiInstructions,
+                                        onChange: (e) => setAiInstructions(e.target.value),
+                                        placeholder: 'Инструкции: сократить, добавить подробности, изменить тон...',
+                                        onKeyPress: (e) => e.key === 'Enter' && handleAIRewrite() }),
+                                    h('button', { className: 'aincc-btn aincc-btn-primary', onClick: handleAIRewrite, disabled: aiRewriting },
+                                        aiRewriting ? 'Обработка...' : 'Переписать')
+                                )
                             ),
                             h('div', { className: 'aincc-form-group' },
                                 h('label', { className: 'aincc-label' }, 'Текст статьи (HTML)'),
@@ -364,6 +481,8 @@
                         h('div', null,
                             h('div', { className: 'aincc-preview' },
                                 draft.image_url && h('img', { className: 'aincc-preview-image', src: draft.image_url, alt: draft.title }),
+                                !draft.image_url && h('div', { style: { background: '#1e293b', padding: 24, textAlign: 'center', borderRadius: 8, marginBottom: 16 } },
+                                    h('span', { style: { color: '#64748b' } }, '📷 Нет изображения')),
                                 h('h1', { className: 'aincc-preview-title' }, draft.title),
                                 draft.lead && h('p', { className: 'aincc-preview-lead' }, draft.lead),
                                 h('div', { className: 'aincc-preview-content', dangerouslySetInnerHTML: { __html: draft.body_html || '' } })
@@ -372,7 +491,11 @@
                                 h('div', { style: { marginBottom: 8 } }, h('strong', { style: { color: '#94a3b8' } }, 'SEO Title: '), h('span', { style: { color: '#e2e8f0' } }, draft.seo_title || '-')),
                                 h('div', { style: { marginBottom: 8 } }, h('strong', { style: { color: '#94a3b8' } }, 'Description: '), h('span', { style: { color: '#e2e8f0' } }, draft.meta_description || '-')),
                                 h('div', { style: { marginBottom: 8 } }, h('strong', { style: { color: '#94a3b8' } }, 'Категория: '), h('span', { style: { color: '#e2e8f0' } }, draft.category || '-')),
-                                h('div', null, h('strong', { style: { color: '#94a3b8' } }, 'Slug: '), h('span', { style: { color: '#e2e8f0' } }, draft.slug || '-'))
+                                h('div', { style: { marginBottom: 8 } }, h('strong', { style: { color: '#94a3b8' } }, 'Slug: '), h('span', { style: { color: '#e2e8f0' } }, draft.slug || '-')),
+                                draft.keywords && draft.keywords.length > 0 && h('div', null,
+                                    h('strong', { style: { color: '#94a3b8' } }, 'Ключевые слова: '),
+                                    h('span', { style: { color: '#e2e8f0' } }, draft.keywords.join(', '))
+                                )
                             )
                         )
                     )
@@ -380,6 +503,7 @@
                 h('div', { className: 'aincc-modal-footer' },
                     editing ? (
                         h(React.Fragment, null,
+                            h('button', { className: 'aincc-btn aincc-btn-danger', onClick: handleDelete, style: { marginRight: 'auto' } }, Icons.trash, ' Удалить'),
                             h('button', { className: 'aincc-btn aincc-btn-secondary', onClick: () => setEditing(false) }, 'Отмена'),
                             h('button', { className: 'aincc-btn aincc-btn-primary', onClick: handleSave, disabled: loading },
                                 loading ? 'Сохранение...' : 'Сохранить изменения')
@@ -858,11 +982,361 @@
     // СТРАНИЦА НАСТРОЕК
     // ============================================
     const SettingsPage = () => {
+        const [activeTab, setActiveTab] = useState('general');
+        const [loading, setLoading] = useState(true);
+        const [saving, setSaving] = useState(false);
+        const [settings, setSettings] = useState({});
+        const [prompts, setPrompts] = useState({});
+        const [cronSettings, setCronSettings] = useState({});
+        const [queueStats, setQueueStats] = useState({});
+
+        const loadSettings = async () => {
+            setLoading(true);
+            try {
+                const [settingsData, promptsData, cronData, statsData] = await Promise.all([
+                    api.get('/settings'),
+                    api.get('/settings/prompts'),
+                    api.get('/settings/cron'),
+                    api.get('/queue/stats'),
+                ]);
+                setSettings(settingsData);
+                setPrompts(promptsData);
+                setCronSettings(cronData);
+                setQueueStats(statsData);
+            } catch (e) {
+                toasts.error('Ошибка загрузки настроек');
+            }
+            setLoading(false);
+        };
+
+        useEffect(() => { loadSettings(); }, []);
+
+        const saveSettings = async () => {
+            setSaving(true);
+            try {
+                await api.put('/settings', settings);
+                toasts.success('Настройки сохранены!');
+            } catch (e) {
+                toasts.error('Ошибка сохранения');
+            }
+            setSaving(false);
+        };
+
+        const savePrompts = async () => {
+            setSaving(true);
+            try {
+                await api.put('/settings/prompts', prompts);
+                toasts.success('AI промпты сохранены!');
+            } catch (e) {
+                toasts.error('Ошибка сохранения');
+            }
+            setSaving(false);
+        };
+
+        const saveCronSettings = async () => {
+            setSaving(true);
+            try {
+                await api.put('/settings/cron', cronSettings);
+                toasts.success('Настройки расписания сохранены!');
+            } catch (e) {
+                toasts.error('Ошибка сохранения');
+            }
+            setSaving(false);
+        };
+
+        const handleClearQueue = async (status) => {
+            if (!confirm(`Удалить все записи со статусом "${status}"?`)) return;
+            try {
+                const result = await api.post('/queue/clear', { status });
+                toasts.success(result.message || 'Очередь очищена');
+                loadSettings();
+            } catch (e) {
+                toasts.error('Ошибка очистки');
+            }
+        };
+
+        const handleRescheduleCron = async () => {
+            try {
+                await api.post('/system/cron/reschedule', {});
+                toasts.success('Cron задачи перезапланированы');
+                loadSettings();
+            } catch (e) {
+                toasts.error('Ошибка');
+            }
+        };
+
+        const handleTestAI = async () => {
+            try {
+                const result = await api.post('/test/ai', {});
+                toasts.success(result.message || 'AI подключен!');
+            } catch (e) {
+                toasts.error('Ошибка: ' + e.message);
+            }
+        };
+
+        const handleTestTelegram = async () => {
+            try {
+                const result = await api.post('/test/telegram', {});
+                toasts.success(result.message || 'Telegram подключен!');
+            } catch (e) {
+                toasts.error('Ошибка: ' + e.message);
+            }
+        };
+
+        const handleTestPexels = async () => {
+            try {
+                const result = await api.post('/test/pexels', {});
+                toasts.success(result.message || 'Pexels подключен!');
+            } catch (e) {
+                toasts.error('Ошибка: ' + e.message);
+            }
+        };
+
+        const handleReinitialize = async () => {
+            if (!confirm('Переинициализировать плагин? Это пересоздаст таблицы БД и сбросит cron.')) return;
+            try {
+                const result = await api.post('/system/reinitialize', {});
+                toasts.success(result.message || 'Плагин переинициализирован');
+            } catch (e) {
+                toasts.error('Ошибка');
+            }
+        };
+
+        if (loading) return h('div', { className: 'aincc-loading' }, h('div', { className: 'aincc-spinner' }), h('p', null, 'Загрузка...'));
+
+        const tabs = [
+            { id: 'general', label: 'Основные' },
+            { id: 'prompts', label: 'AI Промпты' },
+            { id: 'cron', label: 'Расписание' },
+            { id: 'queue', label: 'Очередь' },
+            { id: 'system', label: 'Система' },
+        ];
+
         return h('div', null,
             h('div', { className: 'aincc-header' }, h('h1', null, 'Настройки')),
-            h('div', { className: 'aincc-stat-card', style: { maxWidth: 600 } },
-                h('p', { style: { color: '#94a3b8', marginBottom: 16 } }, 'Настройки плагина управляются через стандартную страницу WordPress.'),
-                h('a', { href: ainccData.adminUrl + 'admin.php?page=ai-news-center-settings', className: 'aincc-btn aincc-btn-primary' }, 'Открыть настройки')
+            // Tabs
+            h('div', { className: 'aincc-filters', style: { marginBottom: 24 } },
+                tabs.map(tab => h('button', {
+                    key: tab.id,
+                    className: `aincc-filter-btn ${activeTab === tab.id ? 'active' : ''}`,
+                    onClick: () => setActiveTab(tab.id),
+                }, tab.label))
+            ),
+            // Tab content
+            activeTab === 'general' && h('div', { className: 'aincc-stat-card', style: { maxWidth: 800 } },
+                h('h3', { style: { color: 'white', marginBottom: 20 } }, 'Основные настройки'),
+                h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 } },
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'AI Провайдер'),
+                        h('select', { className: 'aincc-select', value: settings.ai_provider || 'deepseek',
+                            onChange: (e) => setSettings({ ...settings, ai_provider: e.target.value }) },
+                            h('option', { value: 'deepseek' }, 'DeepSeek'),
+                            h('option', { value: 'openai' }, 'OpenAI'),
+                            h('option', { value: 'anthropic' }, 'Anthropic Claude')
+                        )
+                    ),
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'Язык по умолчанию'),
+                        h('select', { className: 'aincc-select', value: settings.default_language || 'de',
+                            onChange: (e) => setSettings({ ...settings, default_language: e.target.value }) },
+                            h('option', { value: 'de' }, 'Немецкий'),
+                            h('option', { value: 'ua' }, 'Украинский'),
+                            h('option', { value: 'ru' }, 'Русский'),
+                            h('option', { value: 'en' }, 'Английский')
+                        )
+                    ),
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'DeepSeek API Key'),
+                        h('input', { className: 'aincc-input', type: 'password', value: settings.deepseek_api_key || '',
+                            onChange: (e) => setSettings({ ...settings, deepseek_api_key: e.target.value }),
+                            placeholder: 'sk-...' })
+                    ),
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'OpenAI API Key'),
+                        h('input', { className: 'aincc-input', type: 'password', value: settings.openai_api_key || '',
+                            onChange: (e) => setSettings({ ...settings, openai_api_key: e.target.value }),
+                            placeholder: 'sk-...' })
+                    ),
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'Pexels API Key'),
+                        h('input', { className: 'aincc-input', type: 'password', value: settings.pexels_api_key || '',
+                            onChange: (e) => setSettings({ ...settings, pexels_api_key: e.target.value }),
+                            placeholder: 'API key' })
+                    ),
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'Telegram Bot Token'),
+                        h('input', { className: 'aincc-input', type: 'password', value: settings.telegram_bot_token || '',
+                            onChange: (e) => setSettings({ ...settings, telegram_bot_token: e.target.value }),
+                            placeholder: 'Bot token' })
+                    ),
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'Telegram Channel ID'),
+                        h('input', { className: 'aincc-input', value: settings.telegram_channel_id || '',
+                            onChange: (e) => setSettings({ ...settings, telegram_channel_id: e.target.value }),
+                            placeholder: '@channel или -100...' })
+                    ),
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'Telegram включен'),
+                        h('label', { className: 'aincc-toggle' },
+                            h('input', { type: 'checkbox', checked: !!settings.telegram_enabled,
+                                onChange: (e) => setSettings({ ...settings, telegram_enabled: e.target.checked }) }),
+                            h('span', { className: 'aincc-toggle-slider' })
+                        )
+                    )
+                ),
+                h('div', { style: { marginTop: 20, display: 'flex', gap: 12 } },
+                    h('button', { className: 'aincc-btn aincc-btn-primary', onClick: saveSettings, disabled: saving }, saving ? 'Сохранение...' : 'Сохранить'),
+                    h('button', { className: 'aincc-btn aincc-btn-secondary', onClick: handleTestAI }, 'Тест AI'),
+                    h('button', { className: 'aincc-btn aincc-btn-secondary', onClick: handleTestTelegram }, 'Тест Telegram'),
+                    h('button', { className: 'aincc-btn aincc-btn-secondary', onClick: handleTestPexels }, 'Тест Pexels')
+                )
+            ),
+            activeTab === 'prompts' && h('div', { className: 'aincc-stat-card', style: { maxWidth: 800 } },
+                h('h3', { style: { color: 'white', marginBottom: 20 } }, 'AI Промпты'),
+                h('p', { style: { color: '#94a3b8', marginBottom: 20 } }, 'Настройте стиль и инструкции для AI генерации текстов.'),
+                h('div', { className: 'aincc-form-group' },
+                    h('label', { className: 'aincc-label' }, 'Стиль переписывания'),
+                    h('textarea', { className: 'aincc-textarea', rows: 4, value: prompts.rewrite_style || '',
+                        onChange: (e) => setPrompts({ ...prompts, rewrite_style: e.target.value }),
+                        placeholder: 'Профессиональная новостная статья. Факты, ясность, без эмоций...' })
+                ),
+                h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 } },
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'Тон'),
+                        h('select', { className: 'aincc-select', value: prompts.tone || 'neutral',
+                            onChange: (e) => setPrompts({ ...prompts, tone: e.target.value }) },
+                            h('option', { value: 'neutral' }, 'Нейтральный'),
+                            h('option', { value: 'formal' }, 'Формальный'),
+                            h('option', { value: 'friendly' }, 'Дружелюбный'),
+                            h('option', { value: 'urgent' }, 'Срочный')
+                        )
+                    ),
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'SEO фокус'),
+                        h('input', { className: 'aincc-input', value: prompts.seo_focus || '',
+                            onChange: (e) => setPrompts({ ...prompts, seo_focus: e.target.value }),
+                            placeholder: 'Украинцы в Германии, миграция...' })
+                    )
+                ),
+                h('div', { className: 'aincc-form-group' },
+                    h('label', { className: 'aincc-label' }, 'Дополнительные инструкции'),
+                    h('textarea', { className: 'aincc-textarea', rows: 3, value: prompts.custom_instructions || '',
+                        onChange: (e) => setPrompts({ ...prompts, custom_instructions: e.target.value }),
+                        placeholder: 'Любые дополнительные инструкции для AI...' })
+                ),
+                h('div', { className: 'aincc-form-group' },
+                    h('label', { className: 'aincc-label' }, 'Примечания для перевода'),
+                    h('textarea', { className: 'aincc-textarea', rows: 2, value: prompts.translation_notes || '',
+                        onChange: (e) => setPrompts({ ...prompts, translation_notes: e.target.value }),
+                        placeholder: 'Сохраняй немецкие термины (BAMF, Jobcenter) с пояснениями' })
+                ),
+                h('button', { className: 'aincc-btn aincc-btn-primary', onClick: savePrompts, disabled: saving, style: { marginTop: 16 } },
+                    saving ? 'Сохранение...' : 'Сохранить промпты')
+            ),
+            activeTab === 'cron' && h('div', { className: 'aincc-stat-card', style: { maxWidth: 800 } },
+                h('h3', { style: { color: 'white', marginBottom: 20 } }, 'Настройки расписания'),
+                h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 } },
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'Интервал сбора RSS (минуты)'),
+                        h('select', { className: 'aincc-select', value: cronSettings.fetch_interval || 5,
+                            onChange: (e) => setCronSettings({ ...cronSettings, fetch_interval: parseInt(e.target.value) }) },
+                            [2, 5, 10, 15, 30, 60, 120].map(v => h('option', { key: v, value: v }, v + ' мин'))
+                        )
+                    ),
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'Интервал обработки (минуты)'),
+                        h('select', { className: 'aincc-select', value: cronSettings.process_interval || 2,
+                            onChange: (e) => setCronSettings({ ...cronSettings, process_interval: parseInt(e.target.value) }) },
+                            [2, 5, 10].map(v => h('option', { key: v, value: v }, v + ' мин'))
+                        )
+                    ),
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'Размер пакета'),
+                        h('input', { type: 'number', className: 'aincc-input', min: 1, max: 20,
+                            value: cronSettings.batch_size || 5,
+                            onChange: (e) => setCronSettings({ ...cronSettings, batch_size: parseInt(e.target.value) }) })
+                    ),
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'Задержка автопубликации (мин)'),
+                        h('input', { type: 'number', className: 'aincc-input', min: 0, max: 60,
+                            value: cronSettings.auto_publish_delay || 10,
+                            onChange: (e) => setCronSettings({ ...cronSettings, auto_publish_delay: parseInt(e.target.value) }) })
+                    ),
+                    h('div', { className: 'aincc-form-group' },
+                        h('label', { className: 'aincc-label' }, 'Автопубликация'),
+                        h('label', { className: 'aincc-toggle' },
+                            h('input', { type: 'checkbox', checked: !!cronSettings.auto_publish_enabled,
+                                onChange: (e) => setCronSettings({ ...cronSettings, auto_publish_enabled: e.target.checked }) }),
+                            h('span', { className: 'aincc-toggle-slider' })
+                        )
+                    )
+                ),
+                cronSettings.cron_status && h('div', { style: { marginTop: 20, padding: 16, background: '#1e293b', borderRadius: 8 } },
+                    h('h4', { style: { color: '#94a3b8', marginBottom: 12 } }, 'Статус cron задач'),
+                    Object.entries(cronSettings.cron_status).map(([hook, info]) =>
+                        h('div', { key: hook, style: { display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #334155' } },
+                            h('span', { style: { color: '#e2e8f0' } }, info.name),
+                            h('span', { style: { color: info.scheduled ? '#22c55e' : '#ef4444' } },
+                                info.scheduled ? `След: ${info.next_run}` : 'Не запланировано'
+                            )
+                        )
+                    )
+                ),
+                h('div', { style: { marginTop: 20, display: 'flex', gap: 12 } },
+                    h('button', { className: 'aincc-btn aincc-btn-primary', onClick: saveCronSettings, disabled: saving },
+                        saving ? 'Сохранение...' : 'Сохранить расписание'),
+                    h('button', { className: 'aincc-btn aincc-btn-secondary', onClick: handleRescheduleCron },
+                        'Перезапланировать cron')
+                )
+            ),
+            activeTab === 'queue' && h('div', { className: 'aincc-stat-card', style: { maxWidth: 800 } },
+                h('h3', { style: { color: 'white', marginBottom: 20 } }, 'Управление очередью'),
+                queueStats.drafts && h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 } },
+                    h('div', { style: { padding: 16, background: '#1e293b', borderRadius: 8, textAlign: 'center' } },
+                        h('div', { style: { fontSize: 24, color: '#f59e0b' } }, queueStats.drafts.pending_ok || 0),
+                        h('div', { style: { color: '#94a3b8', fontSize: 13 } }, 'На проверку')
+                    ),
+                    h('div', { style: { padding: 16, background: '#1e293b', borderRadius: 8, textAlign: 'center' } },
+                        h('div', { style: { fontSize: 24, color: '#22c55e' } }, queueStats.drafts.auto_ready || 0),
+                        h('div', { style: { color: '#94a3b8', fontSize: 13 } }, 'Готово')
+                    ),
+                    h('div', { style: { padding: 16, background: '#1e293b', borderRadius: 8, textAlign: 'center' } },
+                        h('div', { style: { fontSize: 24, color: '#ef4444' } }, queueStats.drafts.rejected || 0),
+                        h('div', { style: { color: '#94a3b8', fontSize: 13 } }, 'Отклонено')
+                    )
+                ),
+                h('h4', { style: { color: '#94a3b8', marginBottom: 12 } }, 'Очистка очереди'),
+                h('div', { style: { display: 'flex', gap: 12, flexWrap: 'wrap' } },
+                    h('button', { className: 'aincc-btn aincc-btn-danger', onClick: () => handleClearQueue('rejected') },
+                        Icons.trash, ' Удалить отклоненные'),
+                    h('button', { className: 'aincc-btn aincc-btn-secondary', onClick: () => handleClearQueue('published') },
+                        Icons.trash, ' Удалить опубликованные'),
+                    h('button', { className: 'aincc-btn aincc-btn-secondary', onClick: () => handleClearQueue('failed') },
+                        Icons.trash, ' Удалить неудачные')
+                ),
+                queueStats.sources && h('div', { style: { marginTop: 24, padding: 16, background: '#1e293b', borderRadius: 8 } },
+                    h('h4', { style: { color: '#94a3b8', marginBottom: 12 } }, 'Статистика источников'),
+                    h('p', { style: { color: '#e2e8f0' } }, `Всего источников: ${queueStats.sources.total}`),
+                    h('p', { style: { color: '#22c55e' } }, `Активных: ${queueStats.sources.enabled}`)
+                )
+            ),
+            activeTab === 'system' && h('div', { className: 'aincc-stat-card', style: { maxWidth: 800 } },
+                h('h3', { style: { color: 'white', marginBottom: 20 } }, 'Система'),
+                h('div', { style: { marginBottom: 24 } },
+                    h('p', { style: { color: '#94a3b8', marginBottom: 8 } }, 'Версия плагина: ', h('span', { style: { color: '#e2e8f0' } }, ainccData.version || '1.0.0')),
+                    h('p', { style: { color: '#94a3b8' } }, 'PHP: ', h('span', { style: { color: '#e2e8f0' } }, ainccData.phpVersion || 'N/A'))
+                ),
+                h('div', { style: { display: 'flex', gap: 12, flexWrap: 'wrap' } },
+                    h('button', { className: 'aincc-btn aincc-btn-secondary', onClick: handleReinitialize },
+                        'Переинициализировать плагин'),
+                    h('a', { href: ainccData.adminUrl + 'admin.php?page=ai-news-center-settings', className: 'aincc-btn aincc-btn-secondary' },
+                        'WordPress настройки')
+                ),
+                h('div', { style: { marginTop: 24, padding: 16, background: '#7f1d1d', borderRadius: 8 } },
+                    h('h4', { style: { color: '#fca5a5', marginBottom: 8 } }, '⚠️ Опасная зона'),
+                    h('p', { style: { color: '#fecaca', fontSize: 13, marginBottom: 12 } },
+                        'Переинициализация сбросит cron задачи и пересоздаст таблицы БД. Используйте только при проблемах.')
+                )
             )
         );
     };
