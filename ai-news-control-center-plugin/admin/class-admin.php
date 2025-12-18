@@ -18,12 +18,51 @@ class AINCC_Admin {
         add_action('admin_enqueue_scripts', [$this, 'enqueue_scripts']);
         add_action('admin_init', [$this, 'register_settings']);
         add_action('admin_init', [$this, 'check_and_init_database']);
+        add_action('admin_init', [$this, 'ensure_cron_scheduled']);
 
         // Add admin bar menu
         add_action('admin_bar_menu', [$this, 'add_admin_bar_menu'], 100);
 
         // Ajax handlers
         add_action('wp_ajax_aincc_quick_stats', [$this, 'ajax_quick_stats']);
+    }
+
+    /**
+     * Ensure cron jobs are scheduled (auto-fix on admin page load)
+     */
+    public function ensure_cron_scheduled() {
+        // Only check on our plugin pages
+        if (!isset($_GET['page']) || strpos($_GET['page'], 'ai-news-center') === false) {
+            return;
+        }
+
+        // Check every 10 minutes at most
+        $last_check = get_transient('aincc_cron_check');
+        if ($last_check) {
+            return;
+        }
+
+        $needs_reschedule = false;
+
+        // Check essential cron jobs
+        if (!wp_next_scheduled('aincc_fetch_sources')) {
+            $needs_reschedule = true;
+        }
+        if (!wp_next_scheduled('aincc_process_queue')) {
+            $needs_reschedule = true;
+        }
+
+        if ($needs_reschedule) {
+            // Load scheduler and reschedule
+            require_once AINCC_PLUGIN_DIR . 'includes/class-scheduler.php';
+            $scheduler = new AINCC_Scheduler();
+            $scheduler->reschedule_all();
+
+            AINCC_Logger::info('Cron jobs auto-rescheduled on admin access');
+        }
+
+        // Cache check result for 10 minutes
+        set_transient('aincc_cron_check', true, 10 * MINUTE_IN_SECONDS);
     }
 
     /**

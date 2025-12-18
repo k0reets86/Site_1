@@ -458,6 +458,45 @@ class AINCC_REST_API {
                 'author' => ['type' => 'string', 'default' => ''],
             ],
         ]);
+
+        // WordPress categories
+        register_rest_route(self::NAMESPACE, '/categories', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_wp_categories'],
+            'permission_callback' => [$this, 'check_permission'],
+        ]);
+
+        // Clear drafts by status
+        register_rest_route(self::NAMESPACE, '/queue/clear', [
+            'methods' => 'POST',
+            'callback' => [$this, 'clear_drafts_by_status'],
+            'permission_callback' => [$this, 'check_permission'],
+            'args' => [
+                'status' => ['type' => 'string', 'required' => true],
+            ],
+        ]);
+
+        // Cron status and control
+        register_rest_route(self::NAMESPACE, '/cron/status', [
+            'methods' => 'GET',
+            'callback' => [$this, 'get_cron_status'],
+            'permission_callback' => [$this, 'check_permission'],
+        ]);
+
+        register_rest_route(self::NAMESPACE, '/cron/trigger', [
+            'methods' => 'POST',
+            'callback' => [$this, 'trigger_cron'],
+            'permission_callback' => [$this, 'check_permission'],
+            'args' => [
+                'hook' => ['type' => 'string', 'required' => true],
+            ],
+        ]);
+
+        register_rest_route(self::NAMESPACE, '/cron/reschedule', [
+            'methods' => 'POST',
+            'callback' => [$this, 'reschedule_cron'],
+            'permission_callback' => [$this, 'check_permission'],
+        ]);
     }
 
     /**
@@ -1729,6 +1768,147 @@ class AINCC_REST_API {
         return new WP_REST_Response([
             'success' => true,
             'image_url' => $image_url,
+        ], 200);
+    }
+
+    /**
+     * Get WordPress categories (categories + pages as categories)
+     */
+    public function get_wp_categories($request) {
+        $items = [];
+
+        // Get WordPress categories
+        $categories = get_categories([
+            'hide_empty' => false,
+            'orderby' => 'name',
+            'order' => 'ASC',
+        ]);
+
+        foreach ($categories as $cat) {
+            $items[] = [
+                'value' => $cat->slug,
+                'label' => $cat->name,
+                'id' => $cat->term_id,
+                'type' => 'category',
+            ];
+        }
+
+        // Also get pages that could be used as sections
+        $pages = get_pages([
+            'sort_column' => 'menu_order,post_title',
+            'sort_order' => 'ASC',
+            'parent' => 0, // Only top-level pages
+        ]);
+
+        foreach ($pages as $page) {
+            // Skip if slug already exists in categories
+            $exists = false;
+            foreach ($items as $item) {
+                if ($item['value'] === $page->post_name) {
+                    $exists = true;
+                    break;
+                }
+            }
+            if (!$exists) {
+                $items[] = [
+                    'value' => $page->post_name,
+                    'label' => $page->post_title,
+                    'id' => $page->ID,
+                    'type' => 'page',
+                ];
+            }
+        }
+
+        // If no categories/pages found, return defaults
+        if (empty($items)) {
+            $items = [
+                ['value' => 'politik', 'label' => 'Политика', 'type' => 'default'],
+                ['value' => 'wirtschaft', 'label' => 'Экономика', 'type' => 'default'],
+                ['value' => 'gesellschaft', 'label' => 'Общество', 'type' => 'default'],
+                ['value' => 'migration', 'label' => 'Миграция', 'type' => 'default'],
+                ['value' => 'lokales', 'label' => 'Местные новости', 'type' => 'default'],
+                ['value' => 'kultur', 'label' => 'Культура', 'type' => 'default'],
+                ['value' => 'verkehr', 'label' => 'Транспорт', 'type' => 'default'],
+                ['value' => 'sport', 'label' => 'Спорт', 'type' => 'default'],
+                ['value' => 'wetter', 'label' => 'Погода', 'type' => 'default'],
+                ['value' => 'nachrichten', 'label' => 'Новости', 'type' => 'default'],
+            ];
+        }
+
+        return new WP_REST_Response(['items' => $items], 200);
+    }
+
+    /**
+     * Clear drafts by status
+     */
+    public function clear_drafts_by_status($request) {
+        global $wpdb;
+        $db = new AINCC_Database();
+        $status = sanitize_text_field($request->get_param('status'));
+
+        $allowed = ['published', 'rejected', 'pending_ok', 'auto_ready', 'ai_draft'];
+        if (!in_array($status, $allowed)) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Недопустимый статус',
+            ], 400);
+        }
+
+        $table = $db->table('drafts');
+        $deleted = $wpdb->query(
+            $wpdb->prepare("DELETE FROM {$table} WHERE status = %s", $status)
+        );
+
+        return new WP_REST_Response([
+            'success' => true,
+            'deleted' => $deleted,
+            'message' => "Удалено записей: {$deleted}",
+        ], 200);
+    }
+
+    /**
+     * Get cron status
+     */
+    public function get_cron_status($request) {
+        require_once AINCC_PLUGIN_DIR . 'includes/class-scheduler.php';
+        $scheduler = new AINCC_Scheduler();
+
+        return new WP_REST_Response([
+            'success' => true,
+            'status' => $scheduler->get_cron_status(),
+            'system' => $scheduler->get_system_stats(),
+        ], 200);
+    }
+
+    /**
+     * Trigger a cron job manually
+     */
+    public function trigger_cron($request) {
+        require_once AINCC_PLUGIN_DIR . 'includes/class-scheduler.php';
+        $scheduler = new AINCC_Scheduler();
+
+        $hook = sanitize_text_field($request->get_param('hook'));
+        $result = $scheduler->trigger_cron($hook);
+
+        return new WP_REST_Response([
+            'success' => $result['success'] ?? false,
+            'result' => $result,
+        ], $result['success'] ? 200 : 400);
+    }
+
+    /**
+     * Reschedule all cron jobs
+     */
+    public function reschedule_cron($request) {
+        require_once AINCC_PLUGIN_DIR . 'includes/class-scheduler.php';
+        $scheduler = new AINCC_Scheduler();
+
+        $result = $scheduler->reschedule_all();
+
+        return new WP_REST_Response([
+            'success' => true,
+            'result' => $result,
+            'message' => 'Cron задачи перезапланированы',
         ], 200);
     }
 }
