@@ -6,8 +6,26 @@
 (function() {
     'use strict';
 
-    const { createElement: h, useState, useEffect, useCallback, useRef } = React;
+    const { createElement: h, useState, useEffect, useCallback, useRef, createContext, useContext } = React;
     const { createRoot } = ReactDOM;
+
+    // Глобальное состояние для категорий WordPress
+    const CategoriesContext = createContext([]);
+    const useCategoriesContext = () => useContext(CategoriesContext);
+
+    // Дефолтные категории (используются пока не загружены из WP)
+    const defaultCategories = [
+        { value: 'politik', label: 'Политика' },
+        { value: 'wirtschaft', label: 'Экономика' },
+        { value: 'gesellschaft', label: 'Общество' },
+        { value: 'migration', label: 'Миграция' },
+        { value: 'lokales', label: 'Местные новости' },
+        { value: 'kultur', label: 'Культура' },
+        { value: 'verkehr', label: 'Транспорт' },
+        { value: 'sport', label: 'Спорт' },
+        { value: 'wetter', label: 'Погода' },
+        { value: 'nachrichten', label: 'Новости' },
+    ];
 
     // API helper с правильным nonce
     const api = {
@@ -224,9 +242,10 @@
             h('td', null,
                 h('div', { className: 'aincc-actions' },
                     h('button', { className: 'aincc-btn aincc-btn-icon', title: 'Просмотр', onClick: () => onAction('view', draft) }, Icons.eye),
-                    draft.status === 'pending_ok' && h('button', { className: 'aincc-btn aincc-btn-success aincc-btn-sm', onClick: () => onAction('approve', draft) }, Icons.check, ' ОК'),
-                    draft.status === 'pending_ok' && h('button', { className: 'aincc-btn aincc-btn-danger aincc-btn-sm', onClick: () => onAction('reject', draft) }, Icons.x),
-                    (draft.status === 'pending_ok' || draft.status === 'auto_ready') && h('button', { className: 'aincc-btn aincc-btn-primary aincc-btn-sm', onClick: () => onAction('publish', draft) }, Icons.send)
+                    draft.status !== 'published' && h('button', { className: 'aincc-btn aincc-btn-secondary aincc-btn-sm', title: 'Редактировать', onClick: () => onAction('edit', draft) }, '✏️ Ред.'),
+                    draft.status === 'pending_ok' && h('button', { className: 'aincc-btn aincc-btn-success aincc-btn-sm', onClick: () => onAction('approve', draft) }, Icons.check, ' Одобрить'),
+                    draft.status === 'pending_ok' && h('button', { className: 'aincc-btn aincc-btn-danger aincc-btn-sm', onClick: () => onAction('reject', draft) }, Icons.x, ' Отклонить'),
+                    (draft.status === 'pending_ok' || draft.status === 'auto_ready') && h('button', { className: 'aincc-btn aincc-btn-primary aincc-btn-sm', onClick: () => onAction('publish', draft) }, Icons.send, ' Опубл.')
                 )
             )
         );
@@ -235,7 +254,7 @@
     // Модалка просмотра и редактирования
     const PreviewModal = ({ draft, onClose, onAction, onReload }) => {
         const [loading, setLoading] = useState(false);
-        const [editing, setEditing] = useState(false);
+        const [editing, setEditing] = useState(draft?._editMode || false);
         const [showImageSearch, setShowImageSearch] = useState(false);
         const [imageQuery, setImageQuery] = useState('');
         const [imageResults, setImageResults] = useState([]);
@@ -264,6 +283,9 @@
                     image_url: draft.image_url || '',
                 });
                 setImageQuery(draft.title || '');
+                if (draft._editMode) {
+                    setEditing(true);
+                }
             }
         }, [draft]);
 
@@ -359,18 +381,8 @@
             }
         };
 
-        const categories = [
-            { value: 'politik', label: 'Политика' },
-            { value: 'wirtschaft', label: 'Экономика' },
-            { value: 'gesellschaft', label: 'Общество' },
-            { value: 'migration', label: 'Миграция' },
-            { value: 'lokales', label: 'Местные новости' },
-            { value: 'kultur', label: 'Культура' },
-            { value: 'verkehr', label: 'Транспорт' },
-            { value: 'sport', label: 'Спорт' },
-            { value: 'wetter', label: 'Погода' },
-            { value: 'nachrichten', label: 'Новости' },
-        ];
+        // Используем категории из контекста
+        const categories = useCategoriesContext();
 
         return h('div', { className: 'aincc-modal-overlay', onClick: (e) => e.target === e.currentTarget && onClose() },
             h('div', { className: 'aincc-modal', style: { maxWidth: 1000 } },
@@ -573,6 +585,12 @@
                         setSelectedDraft(full);
                     } catch (e) { toasts.error('Ошибка загрузки'); }
                     break;
+                case 'edit':
+                    try {
+                        const full = await api.get(`/drafts/${draft.id}`);
+                        setSelectedDraft({ ...full, _editMode: true });
+                    } catch (e) { toasts.error('Ошибка загрузки'); }
+                    break;
                 case 'approve':
                     try {
                         await api.post(`/drafts/${draft.id}/approve`);
@@ -600,12 +618,23 @@
             }
         };
 
+        const handleClearStatus = async (status) => {
+            if (!confirm(`Удалить все записи со статусом "${status}"?`)) return;
+            try {
+                await api.post('/queue/clear', { status });
+                toasts.success('Очередь очищена');
+                loadData();
+            } catch (e) {
+                toasts.error('Ошибка очистки');
+            }
+        };
+
         const filters = [
-            { id: 'pending_ok,auto_ready', label: 'Очередь', count: (stats.pending || 0) + (stats.auto_ready || 0) },
-            { id: 'pending_ok', label: 'На проверку', count: stats.pending || 0 },
-            { id: 'auto_ready', label: 'Готово', count: stats.auto_ready || 0 },
-            { id: 'published', label: 'Опубликовано', count: stats.published || 0 },
-            { id: 'rejected', label: 'Отклонено', count: stats.rejected || 0 },
+            { id: 'pending_ok,auto_ready', label: 'Очередь', count: (stats.pending || 0) + (stats.auto_ready || 0), clearable: false },
+            { id: 'pending_ok', label: 'На проверку', count: stats.pending || 0, clearable: false },
+            { id: 'auto_ready', label: 'Готово', count: stats.auto_ready || 0, clearable: false },
+            { id: 'published', label: 'Опубликовано', count: stats.published || 0, clearable: true, clearStatus: 'published' },
+            { id: 'rejected', label: 'Отклонено', count: stats.rejected || 0, clearable: true, clearStatus: 'rejected' },
         ];
 
         return h('div', null,
@@ -621,11 +650,18 @@
             h(DashboardStats, { stats }),
             h('div', { className: 'aincc-filters' },
                 filters.map(f =>
-                    h('button', {
-                        key: f.id,
-                        className: `aincc-filter-btn ${filter === f.id ? 'active' : ''}`,
-                        onClick: () => { setFilter(f.id); setPage(1); },
-                    }, f.label, h('span', { className: 'count' }, f.count))
+                    h('div', { key: f.id, style: { display: 'inline-flex', alignItems: 'center', marginRight: 4 } },
+                        h('button', {
+                            className: `aincc-filter-btn ${filter === f.id ? 'active' : ''}`,
+                            onClick: () => { setFilter(f.id); setPage(1); },
+                        }, f.label, h('span', { className: 'count' }, f.count)),
+                        f.clearable && f.count > 0 && h('button', {
+                            className: 'aincc-btn aincc-btn-icon aincc-btn-danger',
+                            style: { marginLeft: 2, padding: '2px 6px', fontSize: 10 },
+                            title: `Очистить ${f.label}`,
+                            onClick: (e) => { e.stopPropagation(); handleClearStatus(f.clearStatus); }
+                        }, '🗑️')
+                    )
                 )
             ),
             h('div', { className: 'aincc-table-container' },
@@ -694,17 +730,8 @@
             setAiChecking(false);
         };
 
-        const categories = [
-            { value: 'politik', label: 'Политика' },
-            { value: 'wirtschaft', label: 'Экономика' },
-            { value: 'gesellschaft', label: 'Общество' },
-            { value: 'migration', label: 'Миграция' },
-            { value: 'lokales', label: 'Местные новости' },
-            { value: 'kultur', label: 'Культура' },
-            { value: 'verkehr', label: 'Транспорт' },
-            { value: 'sport', label: 'Спорт' },
-            { value: 'wetter', label: 'Погода' },
-        ];
+        // Используем категории из контекста
+        const categories = useCategoriesContext();
 
         return h('div', null,
             h('div', { className: 'aincc-header' }, h('h1', null, 'Создать статью')),
@@ -1057,11 +1084,37 @@
 
         const handleRescheduleCron = async () => {
             try {
-                await api.post('/system/cron/reschedule', {});
+                await api.post('/cron/reschedule', {});
                 toasts.success('Cron задачи перезапланированы');
                 loadSettings();
             } catch (e) {
                 toasts.error('Ошибка');
+            }
+        };
+
+        const handleTriggerCron = async (hook) => {
+            try {
+                toasts.success('Запуск задачи...');
+                const result = await api.post('/cron/trigger', { hook });
+                if (result.success) {
+                    toasts.success(`Задача выполнена! ${result.result?.fetched ? `Получено: ${result.result.fetched}` : ''}`);
+                } else {
+                    toasts.error(result.result?.error || 'Ошибка выполнения');
+                }
+                loadSettings();
+            } catch (e) {
+                toasts.error('Ошибка: ' + e.message);
+            }
+        };
+
+        const loadCronStatus = async () => {
+            try {
+                const result = await api.get('/cron/status');
+                if (result.status) {
+                    setCronSettings(prev => ({ ...prev, cron_status: result.status }));
+                }
+            } catch (e) {
+                console.error('Failed to load cron status');
             }
         };
 
@@ -1233,8 +1286,11 @@
                 h('button', { className: 'aincc-btn aincc-btn-primary', onClick: savePrompts, disabled: saving, style: { marginTop: 16 } },
                     saving ? 'Сохранение...' : 'Сохранить промпты')
             ),
-            activeTab === 'cron' && h('div', { className: 'aincc-stat-card', style: { maxWidth: 800 } },
-                h('h3', { style: { color: 'white', marginBottom: 20 } }, 'Настройки расписания'),
+            activeTab === 'cron' && h('div', { className: 'aincc-stat-card', style: { maxWidth: 900 } },
+                h('h3', { style: { color: 'white', marginBottom: 20 } }, '⚙️ Автоматический сбор новостей'),
+                h('p', { style: { color: '#94a3b8', marginBottom: 20 } },
+                    'Плагин автоматически собирает новости из RSS-лент, обрабатывает их через AI и готовит к публикации. Настройте интервалы ниже.'),
+
                 h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 } },
                     h('div', { className: 'aincc-form-group' },
                         h('label', { className: 'aincc-label' }, 'Интервал сбора RSS (минуты)'),
@@ -1251,7 +1307,7 @@
                         )
                     ),
                     h('div', { className: 'aincc-form-group' },
-                        h('label', { className: 'aincc-label' }, 'Размер пакета'),
+                        h('label', { className: 'aincc-label' }, 'Размер пакета (источников за раз)'),
                         h('input', { type: 'number', className: 'aincc-input', min: 1, max: 20,
                             value: cronSettings.batch_size || 5,
                             onChange: (e) => setCronSettings({ ...cronSettings, batch_size: parseInt(e.target.value) }) })
@@ -1263,7 +1319,7 @@
                             onChange: (e) => setCronSettings({ ...cronSettings, auto_publish_delay: parseInt(e.target.value) }) })
                     ),
                     h('div', { className: 'aincc-form-group' },
-                        h('label', { className: 'aincc-label' }, 'Автопубликация'),
+                        h('label', { className: 'aincc-label' }, 'Автопубликация одобренных'),
                         h('label', { className: 'aincc-toggle' },
                             h('input', { type: 'checkbox', checked: !!cronSettings.auto_publish_enabled,
                                 onChange: (e) => setCronSettings({ ...cronSettings, auto_publish_enabled: e.target.checked }) }),
@@ -1271,22 +1327,51 @@
                         )
                     )
                 ),
-                cronSettings.cron_status && h('div', { style: { marginTop: 20, padding: 16, background: '#1e293b', borderRadius: 8 } },
-                    h('h4', { style: { color: '#94a3b8', marginBottom: 12 } }, 'Статус cron задач'),
-                    Object.entries(cronSettings.cron_status).map(([hook, info]) =>
-                        h('div', { key: hook, style: { display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #334155' } },
-                            h('span', { style: { color: '#e2e8f0' } }, info.name),
-                            h('span', { style: { color: info.scheduled ? '#22c55e' : '#ef4444' } },
-                                info.scheduled ? `След: ${info.next_run}` : 'Не запланировано'
-                            )
+
+                // Cron status with manual triggers
+                h('div', { style: { marginTop: 24, padding: 20, background: '#1e293b', borderRadius: 8 } },
+                    h('h4', { style: { color: '#e2e8f0', marginBottom: 16 } }, '📊 Статус автоматических задач'),
+                    h('p', { style: { color: '#64748b', fontSize: 13, marginBottom: 16 } },
+                        'Задачи выполняются автоматически по расписанию. Нажмите "Запустить" для немедленного выполнения.'),
+
+                    cronSettings.cron_status ? Object.entries(cronSettings.cron_status).map(([hook, info]) =>
+                        h('div', { key: hook, style: {
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            padding: '12px 0', borderBottom: '1px solid #334155'
+                        } },
+                            h('div', null,
+                                h('span', { style: { color: '#e2e8f0', fontWeight: 500 } }, info.name),
+                                h('div', { style: { fontSize: 12, color: info.scheduled ? '#22c55e' : '#ef4444', marginTop: 4 } },
+                                    info.scheduled ? `Следующий запуск: ${info.next_run}` : '⚠️ Не запланировано'
+                                ),
+                                info.is_running && h('span', { style: { fontSize: 11, color: '#f59e0b' } }, ' (выполняется...)')
+                            ),
+                            h('button', {
+                                className: 'aincc-btn aincc-btn-secondary aincc-btn-sm',
+                                onClick: () => handleTriggerCron(hook),
+                                disabled: info.is_running,
+                                style: { minWidth: 100 }
+                            }, info.is_running ? '⏳' : '▶️ Запустить')
                         )
-                    )
+                    ) : h('p', { style: { color: '#64748b' } }, 'Загрузка статуса...')
                 ),
-                h('div', { style: { marginTop: 20, display: 'flex', gap: 12 } },
+
+                h('div', { style: { marginTop: 20, display: 'flex', gap: 12, flexWrap: 'wrap' } },
                     h('button', { className: 'aincc-btn aincc-btn-primary', onClick: saveCronSettings, disabled: saving },
-                        saving ? 'Сохранение...' : 'Сохранить расписание'),
+                        saving ? 'Сохранение...' : '💾 Сохранить настройки'),
                     h('button', { className: 'aincc-btn aincc-btn-secondary', onClick: handleRescheduleCron },
-                        'Перезапланировать cron')
+                        '🔄 Перезапланировать все'),
+                    h('button', { className: 'aincc-btn aincc-btn-success', onClick: () => handleTriggerCron('aincc_fetch_sources') },
+                        '📥 Собрать новости сейчас')
+                ),
+
+                h('div', { style: { marginTop: 20, padding: 12, background: '#0f172a', borderRadius: 8, fontSize: 13 } },
+                    h('p', { style: { color: '#64748b', marginBottom: 8 } }, '💡 Как это работает:'),
+                    h('ol', { style: { color: '#94a3b8', paddingLeft: 20, margin: 0 } },
+                        h('li', null, 'RSS сбор: Получает новые статьи из активных RSS источников'),
+                        h('li', null, 'Обработка: AI переписывает и переводит собранные статьи'),
+                        h('li', null, 'Автопубликация: Публикует одобренные статьи (если включено)')
+                    )
                 )
             ),
             activeTab === 'queue' && h('div', { className: 'aincc-stat-card', style: { maxWidth: 800 } },
@@ -1346,6 +1431,21 @@
     // ============================================
     const App = () => {
         const [currentPage, setCurrentPage] = useState(ainccData.currentPage || 'dashboard');
+        const [categories, setCategories] = useState(defaultCategories);
+
+        // Загружаем категории WordPress при старте
+        useEffect(() => {
+            api.get('/categories')
+                .then(data => {
+                    if (data.items && data.items.length > 0) {
+                        setCategories(data.items);
+                    }
+                })
+                .catch(() => {
+                    // Используем дефолтные категории если API не отвечает
+                    console.log('Using default categories');
+                });
+        }, []);
 
         const renderPage = () => {
             switch (currentPage) {
@@ -1359,9 +1459,11 @@
             }
         };
 
-        return h('div', { className: 'aincc-app-container' },
-            h(Sidebar, { currentPage, onNavigate: setCurrentPage }),
-            h('main', { className: 'aincc-main' }, renderPage())
+        return h(CategoriesContext.Provider, { value: categories },
+            h('div', { className: 'aincc-app-container' },
+                h(Sidebar, { currentPage, onNavigate: setCurrentPage }),
+                h('main', { className: 'aincc-main' }, renderPage())
+            )
         );
     };
 
